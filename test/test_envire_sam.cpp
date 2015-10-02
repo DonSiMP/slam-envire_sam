@@ -1,10 +1,11 @@
 #include <boost/test/unit_test.hpp>
 #include <envire_sam/ESAM.hpp>
 
-using namespace envire_sam;
+using namespace envire::sam;
 
 BOOST_AUTO_TEST_CASE(gtsam_simple_visual_slam)
 {
+    std::cout<<"\n**********************************************************\n";
 
     // Define the camera calibration parameters
     gtsam::Cal3_S2::shared_ptr K(new gtsam::Cal3_S2(50.0, 50.0, 0.0, 50.0, 50.0));
@@ -80,6 +81,8 @@ BOOST_AUTO_TEST_CASE(gtsam_simple_visual_slam)
 
 BOOST_AUTO_TEST_CASE(envire_sam_simple_visual_slam)
 {
+    std::cout<<"\n**********************************************************\n";
+
     // Define the camera calibration parameters
     gtsam::Cal3_S2::shared_ptr K(new gtsam::Cal3_S2(50.0, 50.0, 0.0, 50.0, 50.0));
 
@@ -114,10 +117,9 @@ BOOST_AUTO_TEST_CASE(envire_sam_simple_visual_slam)
     }
 
     // Create a factor graph
-    base::Matrix6d cov_pose_0;
-    cov_pose_0.block<3,3>(0,0) = Eigen::Matrix3d::Identity() * 0.3; // 30cm std on x,y,z
-    cov_pose_0.block<3,3>(3,3) = Eigen::Matrix3d::Identity() * 0.1; // 0.1 rad on roll,pitch,yaw
-    envire_sam::ESAM esam(poses[0], cov_pose_0, 'x');
+    base::Vector6d var_pose_0;
+    var_pose_0 << 0.3*0.3, 0.3*0.3, 0.3*0.3, 0.1*0.1, 0.1*0.1, 0.1*0.1;
+    envire::sam::ESAM esam(poses[0], var_pose_0, 'x', 'l');
 
     // Simulated measurements from each camera pose, adding them to the envire sam
     for (size_t i = 0; i < poses.size(); ++i)
@@ -158,3 +160,77 @@ BOOST_AUTO_TEST_CASE(envire_sam_simple_visual_slam)
     result.print("Final results:\n");
 
 }
+
+BOOST_AUTO_TEST_CASE(envire_sam_simple_pose_slam)
+{
+    std::cout<<"\n**********************************************************\n";
+
+    // 1. Create a factor graph container and add factors to it
+    // 2a. Add a prior on the first pose, setting it to the origin
+    // A prior factor consists of a mean and a noise model (covariance matrix)
+    base::Pose pose_0;
+    base::Vector6d var_pose_0;
+    var_pose_0 << 0.3*0.3, 0.3*0.3, 0.3*0.3, 0.1*0.1, 0.1*0.1, 0.1*0.1;
+    envire::sam::ESAM esam(pose_0, var_pose_0, 'x', 'l');
+
+    // For simplicity, we will use the same noise model for odometry and loop closures
+    base::Vector6d var_model;
+    var_model << 0.2*0.2, 0.2*0.2, 0.2*0.2, 0.1*0.1, 0.1*0.1, 0.1*0.1;
+
+    // 2b. Add odometry factors
+    // Create odometry (Between) factors between consecutive poses
+    base::Pose delta_pose;
+    delta_pose.position << 2.0, 0.0, 0.0;
+    esam.addFactor(base::Time::now(), delta_pose, var_model);
+    delta_pose.orientation = Eigen::Quaternion <double> (Eigen::AngleAxisd(M_PI_2, Eigen::Vector3d::UnitZ())*
+                                    Eigen::AngleAxisd(0, Eigen::Vector3d::UnitY()) *
+                                    Eigen::AngleAxisd(0, Eigen::Vector3d::UnitX()));
+    for (register int i=0; i<3; ++i)
+    {
+        esam.addFactor(base::Time::now(), delta_pose, var_model);
+    }
+
+    // 2c. Add the loop closure constraint
+    // This factor encodes the fact that we have returned to the same pose. In real systems,
+    // these constraints may be identified in many ways, such as appearance-based techniques
+    // with camera images. We will use another Between Factor to enforce this constraint:
+    esam.insertFactor('x', 4,'x', 1, base::Time::now(), delta_pose, var_model);
+    esam.printFactorGraph("\nFactor Graph:\n"); // print
+
+    // 3. Create the data structure to hold the initialEstimate estimate to the solution
+    // For illustrative purposes, these have been deliberately set to incorrect values
+    base::Pose pose;
+    pose.position << 0.5, 0.0, 0.0;
+    pose.orientation = Eigen::Quaternion <double> (Eigen::AngleAxisd(0.2, Eigen::Vector3d::UnitZ()));
+    esam.insertValue('x', 0, pose);
+    pose.position << 2.3, 0.1, 0.0;
+    pose.orientation = Eigen::Quaternion <double> (Eigen::AngleAxisd(-0.2, Eigen::Vector3d::UnitZ()));
+    esam.insertValue('x', 1, pose);
+    pose.position << 4.1, 0.1, 0.0;
+    pose.orientation = Eigen::Quaternion <double> (Eigen::AngleAxisd(M_PI_2, Eigen::Vector3d::UnitZ()));
+    esam.insertValue('x', 2, pose);
+    pose.position << 4.0, 2.0, 0.0;
+    pose.orientation = Eigen::Quaternion <double> (Eigen::AngleAxisd(M_PI, Eigen::Vector3d::UnitZ()));
+    esam.insertValue('x', 3, pose);
+    pose.position << 2.1, 2.1, 0.0;
+    pose.orientation = Eigen::Quaternion <double> (Eigen::AngleAxisd(-M_PI_2, Eigen::Vector3d::UnitZ()));
+    esam.insertValue('x', 4, pose);
+
+    // GraphViz
+    esam.graphViz("esam_graph.dot");
+
+    // 4. Optimize 
+    esam.optimize();
+
+//   // 5. Calculate and print marginal covariances for all variables
+//   cout.precision(3);
+//   Marginals marginals(graph, result);
+//   cout << "x1 covariance:\n" << marginals.marginalCovariance(1) << endl;
+//   cout << "x2 covariance:\n" << marginals.marginalCovariance(2) << endl;
+//   cout << "x3 covariance:\n" << marginals.marginalCovariance(3) << endl;
+//   cout << "x4 covariance:\n" << marginals.marginalCovariance(4) << endl;
+//   cout << "x5 covariance:\n" << marginals.marginalCovariance(5) << endl;
+
+}
+
+

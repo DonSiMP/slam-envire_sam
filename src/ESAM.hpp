@@ -30,11 +30,16 @@
 
 /** GTSAM Factors **/
 #include <gtsam/slam/PriorFactor.h>
+#include <gtsam/slam/BetweenFactor.h>
 #include <gtsam/slam/ProjectionFactor.h>
 #include <gtsam/nonlinear/NonlinearFactorGraph.h>
 
 /** GTSAM Optimizer **/
 #include <gtsam/nonlinear/DoglegOptimizer.h>
+#include <gtsam/nonlinear/GaussNewtonOptimizer.h>
+
+/** GTSAM Marhinals **/
+#include <gtsam/nonlinear/Marginals.h>
 
 /** Values to estimate **/
 #include <gtsam/nonlinear/Values.h>
@@ -43,8 +48,13 @@
 #include <envire_sam/Filters.hpp>
 #include <envire_sam/Features.hpp>
 
-namespace envire_sam
+namespace envire { namespace sam
 {
+
+    class PoseItem: public envire::core::Item<base::Pose>
+    {
+    };
+
     /** PCL TYPES **/
     typedef pcl::PointXYZRGB PointType;
     typedef pcl::PointCloud<PointType> PCLPointCloud;
@@ -58,11 +68,22 @@ namespace envire_sam
 
     private:
 
+        /** Keys to identify poses and landmarks **/
+        char pose_key, landmark_key;
+        
+        unsigned long int pose_idx, landmark_idx;
+
         /** The environment in a graph structure **/
-        envire::core::TransformGraph envire_graph_;
+        envire::core::TransformGraph _transform_graph;
 
         /** Factor graph **/
-        gtsam::NonlinearFactorGraph factor_graph_;
+        gtsam::NonlinearFactorGraph _factor_graph;
+
+        /** Optimzation **/
+        gtsam::GaussNewtonParams parameters;
+
+        /** Marginals in the estimation **/
+        //gtsam::Marginals marginals;
 
         /** Values estimates **/
         gtsam::Values estimates_values;
@@ -75,12 +96,35 @@ namespace envire_sam
         /** Constructors
          */
         ESAM();
-        ESAM(const ::base::Pose &pose, const ::base::Matrix6d &cov_pose, const char key);
+        ESAM(const ::base::Pose &pose, const ::base::Matrix6d &cov_pose, const char pose_key, const char landmark_key);
+        ESAM(const ::base::Pose &pose, const ::base::Vector6d &var_pose, const char pose_key, const char landmark_key);
 
         ~ESAM();
 
-        inline gtsam::NonlinearFactorGraph& factor_graph() { return this->factor_graph_; };
+        void insertFactor(const char key1, const unsigned long int &idx1,
+                 const char key2, const unsigned long int &idx2,
+                 const base::Time &time, const ::base::Pose &delta_pose,
+                 const ::base::Vector6d &var_delta_pose);
+
+        void insertFactor(const char key1, const unsigned long int &idx1,
+                const char key2, const unsigned long int &idx2,
+                const base::Time &time, const ::base::Pose &delta_pose,
+                const ::base::Matrix6d &cov_delta_pose);
+
+        void addFactor(const base::Time &time, const ::base::Pose &delta_pose, const ::base::Vector6d &var_delta_pose);
+
+        void addFactor(const base::Time &time, const ::base::Pose &delta_pose, const ::base::Matrix6d &cov_delta_pose);
+        
+        void insertValue(const char key, const unsigned long int &idx, const ::base::Pose &pose);
+
+        void optimize();
+
+        inline gtsam::NonlinearFactorGraph& factor_graph() { return this->_factor_graph; };
+
+        void printFactorGraph(const std::string &title);
+
+        void graphViz(const std::string &filename);
     };
 
-}
+}}
 #endif

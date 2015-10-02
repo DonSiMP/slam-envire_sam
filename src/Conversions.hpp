@@ -21,7 +21,7 @@
 #include <base/Eigen.hpp>
 #include <base/samples/Pointcloud.hpp>
 
-namespace envire_sam
+namespace envire { namespace sam
 {
 
     template <class PointType>
@@ -203,6 +203,6 @@ namespace envire_sam
         data << "\n";
         }
     };
-}
+}}
 #endif
 

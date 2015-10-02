@@ -20,7 +20,7 @@
 #include <pcl/features/pfh.h>
 #include <pcl/keypoints/sift_keypoint.h>
 
-namespace envire_sam
+namespace envire { namespace sam
 {
     static void compute_surface_normals (pcl::PointCloud<pcl::PointXYZRGB>::Ptr &points,
                                 float normal_radius,
@@ -152,6 +152,6 @@ namespace envire_sam
 
         return;
     };
-}
+}}
 #endif
 

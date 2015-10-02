@@ -19,7 +19,7 @@
 #include <pcl/filters/radius_outlier_removal.h>
 #include <pcl/filters/statistical_outlier_removal.h>
 
-namespace envire_sam
+namespace envire { namespace sam
 {
 
     static void downsample (pcl::PointCloud<pcl::PointXYZRGB>::Ptr &points, float leaf_size, pcl::PointCloud<pcl::PointXYZRGB>::Ptr &downsampled_out)
@@ -79,5 +79,5 @@ namespace envire_sam
         sor.setInputCloud(points);
         sor.filter (*outliersampled_out);
     }
-}
+}}
 #endif
