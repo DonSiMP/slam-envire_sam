@@ -1,3 +1,3 @@
 rock_testsuite(test_suite suite.cpp
-   test_Dummy.cpp
-   DEPS sam)
+   test_envire_sam.cpp
+   DEPS envire_sam)
