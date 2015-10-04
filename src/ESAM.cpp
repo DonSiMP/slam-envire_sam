@@ -154,13 +154,10 @@ void ESAM::optimize()
     for(register unsigned int i=0; i<this->pose_idx+1; ++i)
     {
         gtsam::Symbol frame_id(this->pose_key, i);
-        std::cout<<"Value["<<i<<"]: ";
         frame_id.print();
-        std::cout<<"\n";
         try
         {
             std::vector<envire::core::ItemBase::Ptr> items = this->_transform_graph.getItems(frame_id);
-            std::cout<<"items.size(): "<<items.size()<<"\n";
             boost::intrusive_ptr<envire::sam::PoseItem> pose_item = boost::static_pointer_cast<envire::sam::PoseItem>(items[0]);
             gtsam::Pose3 pose(gtsam::Rot3(pose_item->getData().orientation), gtsam::Point3(pose_item->getData().position));
             initialEstimate.insert(frame_id, pose);
@@ -172,22 +169,45 @@ void ESAM::optimize()
     }
 
 
-    initialEstimate.print("\nInitial Estimate:\n"); // print
+    //initialEstimate.print("\nInitial Estimate:\n"); // print
 
     /** Create the optimizer ... **/
     gtsam::GaussNewtonOptimizer optimizer(this->_factor_graph, initialEstimate, this->parameters);
 
-    /**... and optimize **/
+    /** Optimize **/
     gtsam::Values result = optimizer.optimize();
     result.print("Final Result:\n");
 
-    gtsam::Marginals marginals(this->_factor_graph, result);
+    /** Save the marginals **/
+    this->marginals.reset(new gtsam::Marginals(this->_factor_graph, result));
 
+    /** Store the result in the transform graph **/
+    gtsam::Values::iterator key_value = result.begin();
+    for(; key_value != result.end(); ++key_value)
+    {
+        try
+        {
+            gtsam::Symbol const &frame_id(key_value->key);
+            std::vector<envire::core::ItemBase::Ptr> items = this->_transform_graph.getItems(frame_id);
+            boost::intrusive_ptr<envire::sam::PoseItem> pose_item = boost::static_pointer_cast<envire::sam::PoseItem>(items[0]);
+            base::Pose result_pose;
+            boost::shared_ptr<gtsam::Pose3> pose = boost::reinterpret_pointer_cast<gtsam::Pose3>(key_value->value.clone());
+            std::cout<<"reinterpret: "<<pose->translation()<<"\n";
+            pose_item->setData(result_pose);
+        }catch(envire::core::UnknownFrameException &ufex)
+        {
+        }
+    }
+
+}
+
+void ESAM::printMarginals()
+{
     std::cout.precision(3);
     for(register unsigned int i=0; i<this->pose_idx+1; ++i)
     {
         gtsam::Symbol frame_id(this->pose_key, i);
-        std::cout <<this->pose_key<<i<<" covariance:\n" << marginals.marginalCovariance(frame_id) << std::endl;
+        std::cout <<this->pose_key<<i<<" covariance:\n" << this->marginals->marginalCovariance(frame_id) << std::endl;
     }
 }
 

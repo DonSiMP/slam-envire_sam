@@ -70,7 +70,7 @@ namespace envire { namespace sam
 
         /** Keys to identify poses and landmarks **/
         char pose_key, landmark_key;
-        
+
         unsigned long int pose_idx, landmark_idx;
 
         /** The environment in a graph structure **/
@@ -83,7 +83,7 @@ namespace envire { namespace sam
         gtsam::GaussNewtonParams parameters;
 
         /** Marginals in the estimation **/
-        //gtsam::Marginals marginals;
+        boost::shared_ptr<gtsam::Marginals> marginals;
 
         /** Values estimates **/
         gtsam::Values estimates_values;
@@ -118,6 +118,8 @@ namespace envire { namespace sam
         void insertValue(const char key, const unsigned long int &idx, const ::base::Pose &pose);
 
         void optimize();
+
+        void printMarginals();
 
         inline gtsam::NonlinearFactorGraph& factor_graph() { return this->_factor_graph; };
 

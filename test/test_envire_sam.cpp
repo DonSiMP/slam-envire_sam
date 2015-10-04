@@ -222,6 +222,8 @@ BOOST_AUTO_TEST_CASE(envire_sam_simple_pose_slam)
     // 4. Optimize 
     esam.optimize();
 
+    esam.printFactorGraph("\nFactor Graph:\n"); // print
+
 //   // 5. Calculate and print marginal covariances for all variables
 //   cout.precision(3);
 //   Marginals marginals(graph, result);
