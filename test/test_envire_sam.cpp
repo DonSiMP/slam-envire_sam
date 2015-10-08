@@ -1,6 +1,13 @@
 #include <boost/test/unit_test.hpp>
 #include <envire_sam/ESAM.hpp>
 
+#ifndef D2R
+#define D2R M_PI/180.00 /** Convert degree to radian **/
+#endif
+#ifndef R2D
+#define R2D 180.00/M_PI /** Convert radian to degree **/
+#endif
+
 using namespace envire::sam;
 
 BOOST_AUTO_TEST_CASE(gtsam_simple_visual_slam)
@@ -181,13 +188,13 @@ BOOST_AUTO_TEST_CASE(envire_sam_simple_pose_slam)
     // Create odometry (Between) factors between consecutive poses
     base::Pose delta_pose;
     delta_pose.position << 2.0, 0.0, 0.0;
-    esam.addFactor(base::Time::now(), delta_pose, var_model);
+    esam.addDeltaPoseFactor(base::Time::now(), delta_pose, var_model);
     delta_pose.orientation = Eigen::Quaternion <double> (Eigen::AngleAxisd(M_PI_2, Eigen::Vector3d::UnitZ())*
                                     Eigen::AngleAxisd(0, Eigen::Vector3d::UnitY()) *
                                     Eigen::AngleAxisd(0, Eigen::Vector3d::UnitX()));
     for (register int i=0; i<3; ++i)
     {
-        esam.addFactor(base::Time::now(), delta_pose, var_model);
+        esam.addDeltaPoseFactor(base::Time::now(), delta_pose, var_model);
     }
 
     // 2c. Add the loop closure constraint
@@ -219,10 +226,21 @@ BOOST_AUTO_TEST_CASE(envire_sam_simple_pose_slam)
     // GraphViz
     esam.graphViz("esam_graph.dot");
 
-    // 4. Optimize 
+    // 4. Optimize
     esam.optimize();
 
-    esam.printFactorGraph("\nFactor Graph:\n"); // print
+    esam.printMarginals(); // print
+
+    std::string frame_id;
+    ::base::TransformWithCovariance last_pose = esam.getLastPoseValueAndId(frame_id);
+    std::cout<<frame_id<<" IS THE LAST POSE:\n"<<last_pose.translation<<"\n";
+    Eigen::Vector3d euler; /** In Euler angles **/
+    euler[2] = last_pose.orientation.toRotationMatrix().eulerAngles(2,1,0)[0];//Yaw
+    euler[1] = last_pose.orientation.toRotationMatrix().eulerAngles(2,1,0)[1];//Pitch
+    euler[0] = last_pose.orientation.toRotationMatrix().eulerAngles(2,1,0)[2];//Roll
+    std::cout<<frame_id<<" IS THE LAST POSE IN ESAM ROLL: "<<euler[0]*R2D<<" PITCH: "<<euler[1]*R2D<<" YAW: "<<euler[2]*R2D<<std::endl;
+    std::cout<<frame_id<<" IS THE LAST POSE IN ESAM COV:\n"<<last_pose.cov<<"\n";
+
 
 //   // 5. Calculate and print marginal covariances for all variables
 //   cout.precision(3);

@@ -11,11 +11,14 @@
 #ifndef __ENVIRE_SAM_ESAM__
 #define __ENVIRE_SAM_ESAM__
 
+#include <vector>
 #include <fstream>
 
 /** Rock Base Types **/
 #include <base/Eigen.hpp>
 #include <base/Pose.hpp>
+#include <base/TransformWithCovariance.hpp>
+#include <base/samples/RigidBodyState.hpp>
 #include <base/samples/Pointcloud.hpp>
 
 /** Envire **/
@@ -50,18 +53,21 @@
 
 namespace envire { namespace sam
 {
-
-    class PoseItem: public envire::core::Item<base::Pose>
-    {
-    };
-
     /** PCL TYPES **/
     typedef pcl::PointXYZRGB PointType;
     typedef pcl::PointCloud<PointType> PCLPointCloud;
     typedef typename PCLPointCloud::Ptr PCLPointCloudPtr;
 
+    class PoseItem: public envire::core::Item<base::TransformWithCovariance>
+    {
+    };
+
+    class PointCloudItem: public envire::core::Item<PCLPointCloud>
+    {
+    };
+
     /**
-     * A calss to perform SAM using PCL and Envire
+     * A class to perform SAM using PCL and Envire
      */
     class ESAM
     {
@@ -96,8 +102,15 @@ namespace envire { namespace sam
         /** Constructors
          */
         ESAM();
-        ESAM(const ::base::Pose &pose, const ::base::Matrix6d &cov_pose, const char pose_key, const char landmark_key);
-        ESAM(const ::base::Pose &pose, const ::base::Vector6d &var_pose, const char pose_key, const char landmark_key);
+
+        ESAM(const ::base::TransformWithCovariance &pose_with_cov,
+                const char pose_key, const char landmark_key);
+
+        ESAM(const ::base::Pose &pose, const ::base::Matrix6d &cov_pose,
+                const char pose_key, const char landmark_key);
+
+        ESAM(const ::base::Pose &pose, const ::base::Vector6d &var_pose, 
+                const char pose_key, const char landmark_key);
 
         ~ESAM();
 
@@ -111,13 +124,33 @@ namespace envire { namespace sam
                 const base::Time &time, const ::base::Pose &delta_pose,
                 const ::base::Matrix6d &cov_delta_pose);
 
-        void addFactor(const base::Time &time, const ::base::Pose &delta_pose, const ::base::Vector6d &var_delta_pose);
+        void addDeltaPoseFactor(const base::Time &time, const ::base::TransformWithCovariance &delta_pose_with_cov);
 
-        void addFactor(const base::Time &time, const ::base::Pose &delta_pose, const ::base::Matrix6d &cov_delta_pose);
-        
-        void insertValue(const char key, const unsigned long int &idx, const ::base::Pose &pose);
+        void addDeltaPoseFactor(const base::Time &time, const ::base::Pose &delta_pose, const ::base::Vector6d &var_delta_pose);
+
+        void addDeltaPoseFactor(const base::Time &time, const ::base::Pose &delta_pose, const ::base::Matrix6d &cov_delta_pose);
+
+        void insertValue(const std::string &frame_id, const ::base::TransformWithCovariance &pose_with_cov);
+
+        void insertValue(const char key, const unsigned long int &idx, const ::base::TransformWithCovariance &pose_with_cov);
+
+        void insertValue(const char key, const unsigned long int &idx, const ::base::Pose &pose, const ::base::Matrix6d &cov_pose = ::base::Matrix6d::Identity());
+
+        void addPoseValue(const ::base::TransformWithCovariance &pose_with_cov);
+
+        base::TransformWithCovariance& getLastPoseValueAndId(std::string &frame_id_string);
+
+        std::string currentPoseId();
+
+        std::string currentLandmarkId();
 
         void optimize();
+
+        ::base::TransformWithCovariance getTransformPose(const std::string &frame_id);
+
+        ::base::samples::RigidBodyState getRbsPose(const std::string &frame_id);
+
+        std::vector< ::base::samples::RigidBodyState > getRbsPoses();
 
         void printMarginals();
 
@@ -126,6 +159,24 @@ namespace envire { namespace sam
         void printFactorGraph(const std::string &title);
 
         void graphViz(const std::string &filename);
+
+        static bool isCovBigger(const Eigen::Matrix3d &cov_position, const double &value)
+        {
+            /**get the rotation and scaling of the ellipsoid from the covariance matrix **/
+            Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> ev( cov_position );
+            Eigen::Vector3d e_val = ev.eigenvalues();
+
+            std::cout<<"COMPUTER NORM COV: "<<Eigen::Vector3d(e_val.array().sqrt()).norm()<<"\n";
+
+            if(Eigen::Vector3d(e_val.array().sqrt()).norm() > value)
+            {
+                return true;
+            }
+            else
+            {
+                return false;
+            }
+        };
     };
 
 }}
