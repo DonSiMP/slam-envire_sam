@@ -24,13 +24,29 @@ ESAM::ESAM()
 {
     base::Pose pose;
     base::Matrix6d cov_pose;
-    this->pose_key = 'x';
-    this->landmark_key = 'l';
-    ESAM(pose, cov_pose, this->pose_key, this->landmark_key);
+    ESAM(pose, cov_pose, 'x', 'l');
 }
 
+ESAM::ESAM(const ::base::Pose &pose, const ::base::Vector6d &var_pose,
+        const char pose_key, const char landmark_key)
+{
+    BilateralFilterParams bfilter_default;
+    OutlierRemovalParams outlier_default;
+    ESAM(pose, var_pose, pose_key, landmark_key, bfilter_default, outlier_default);
+}
 
-ESAM::ESAM(const ::base::TransformWithCovariance &pose_with_cov, const char pose_key, const char landmark_key)
+ESAM::ESAM(const ::base::Pose &pose, const ::base::Matrix6d &cov_pose,
+        const char pose_key, const char landmark_key)
+{
+    BilateralFilterParams bfilter_default;
+    OutlierRemovalParams outlier_default;
+    ESAM(pose, cov_pose, pose_key, landmark_key, bfilter_default, outlier_default);
+}
+
+ESAM::ESAM(const ::base::TransformWithCovariance &pose_with_cov,
+        const char pose_key, const char landmark_key,
+        const BilateralFilterParams &bfilter,
+        const OutlierRemovalParams &outliers)
 {
     gtsam::Pose3 pose_0(gtsam::Rot3(pose_with_cov.orientation), gtsam::Point3(pose_with_cov.translation));
     gtsam::Matrix cov_matrix = pose_with_cov.cov;
@@ -39,21 +55,31 @@ ESAM::ESAM(const ::base::TransformWithCovariance &pose_with_cov, const char pose
     /** Optimization parameters **/
 
     // Stop iterating once the change in error between steps is less than this value
-    this->parameters.relativeErrorTol = 1e-5;
+    this->optimization_parameters.relativeErrorTol = 1e-5;
 
     // Do not perform more than N iteration steps
-    this->parameters.maxIterations = 100;
+    this->optimization_parameters.maxIterations = 100;
 
     this->pose_key = pose_key;
     this->landmark_key = landmark_key;
     this->pose_idx = 0;
     this->landmark_idx = 0;
 
+    /** Filter and outlier parameters **/
+    this->bfilter_paramaters = bfilter;
+    this->outlier_paramaters = outliers;
+
+    /** Point cloud input **/
+    this->pcl_point_cloud_in.reset(new PCLPointCloud);
+
     // Add a prior on pose x0. This indirectly specifies where the origin is.
     this->_factor_graph.add(gtsam::PriorFactor<gtsam::Pose3>(gtsam::Symbol(this->pose_key, this->pose_idx), pose_0, cov_pose_0)); // add directly to graph
 
 }
-ESAM::ESAM(const ::base::Pose &pose, const ::base::Matrix6d &cov_pose, const char pose_key, const char landmark_key)
+ESAM::ESAM(const ::base::Pose &pose, const ::base::Matrix6d &cov_pose,
+        const char pose_key, const char landmark_key,
+        const BilateralFilterParams &bfilter,
+        const OutlierRemovalParams &outliers)
 {
 
     gtsam::Pose3 pose_0(gtsam::Rot3(pose.orientation), gtsam::Point3(pose.position));
@@ -63,20 +89,31 @@ ESAM::ESAM(const ::base::Pose &pose, const ::base::Matrix6d &cov_pose, const cha
     /** Optimization parameters **/
 
     // Stop iterating once the change in error between steps is less than this value
-    this->parameters.relativeErrorTol = 1e-5;
+    this->optimization_parameters.relativeErrorTol = 1e-5;
+
     // Do not perform more than N iteration steps
-    this->parameters.maxIterations = 100;
+    this->optimization_parameters.maxIterations = 100;
 
     this->pose_key = pose_key;
     this->landmark_key = landmark_key;
     this->pose_idx = 0;
     this->landmark_idx = 0;
 
+    /** Filter and outlier parameters **/
+    this->bfilter_paramaters = bfilter;
+    this->outlier_paramaters = outliers;
+
+    /** Point cloud input **/
+    this->pcl_point_cloud_in.reset(new PCLPointCloud);
+
     // Add a prior on pose x0. This indirectly specifies where the origin is.
     this->_factor_graph.add(gtsam::PriorFactor<gtsam::Pose3>(gtsam::Symbol(this->pose_key, this->pose_idx), pose_0, cov_pose_0)); // add directly to graph
 }
 
-ESAM::ESAM(const ::base::Pose &pose, const ::base::Vector6d &var_pose, const char pose_key, const char landmark_key)
+ESAM::ESAM(const ::base::Pose &pose, const ::base::Vector6d &var_pose,
+        const char pose_key, const char landmark_key,
+        const BilateralFilterParams &bfilter,
+        const OutlierRemovalParams &outliers)
 {
     gtsam::Pose3 pose_0(gtsam::Rot3(pose.orientation), gtsam::Point3(pose.position));
     gtsam::Vector variances = var_pose;
@@ -85,21 +122,31 @@ ESAM::ESAM(const ::base::Pose &pose, const ::base::Vector6d &var_pose, const cha
     /** Optimzation parameters **/
 
     // Stop iterating once the change in error between steps is less than this value
-    this->parameters.relativeErrorTol = 1e-5;
+    this->optimization_parameters.relativeErrorTol = 1e-5;
     // Do not perform more than N iteration steps
-    this->parameters.maxIterations = 100;
+    this->optimization_parameters.maxIterations = 100;
 
     this->pose_key = pose_key;
     this->landmark_key = landmark_key;
     this->pose_idx = 0;
     this->landmark_idx = 0;
 
+    /** Filter and outlier parameters **/
+    this->bfilter_paramaters = bfilter;
+    this->outlier_paramaters = outliers;
+
+    /** Point cloud input **/
+    this->pcl_point_cloud_in.reset(new PCLPointCloud);
+
     // Add a prior on pose x0. This indirectly specifies where the origin is.
     this->_factor_graph.add(gtsam::PriorFactor<gtsam::Pose3>(gtsam::Symbol(this->pose_key, this->pose_idx), pose_0, cov_pose_0)); // add directly to graph
-
 }
 
-ESAM::~ESAM(){};
+ESAM::~ESAM()
+{
+    this->marginals.reset();
+    this->pcl_point_cloud_in.reset();
+}
 
 void ESAM::insertFactor(const char key1, const unsigned long int &idx1,
                 const char key2, const unsigned long int &idx2,
@@ -279,7 +326,7 @@ void ESAM::optimize()
     initialEstimate.print("\nInitial Estimate:\n"); // print
 
     /** Create the optimizer ... **/
-    gtsam::GaussNewtonOptimizer optimizer(this->_factor_graph, initialEstimate, this->parameters);
+    gtsam::GaussNewtonOptimizer optimizer(this->_factor_graph, initialEstimate, this->optimization_parameters);
 
     /** Optimize **/
     gtsam::Values result = optimizer.optimize();
@@ -373,6 +420,49 @@ void ESAM::printMarginals()
     }
 }
 
+
+void ESAM::pushPointCloud(const ::base::samples::Pointcloud &base_point_cloud, const int height, const int width, const Eigen::Affine3d &tf)
+{
+    /** Convert point cloud into the current node frame **/
+    base::samples::Pointcloud transformed_base_point_cloud;
+    envire::sam::transformPointCloud(base_point_cloud, transformed_base_point_cloud, tf);
+
+    /** Convert to pcl point cloud **/
+    envire::sam::toPCLPointCloud<PointType>(transformed_base_point_cloud, *this->pcl_point_cloud_in.get());
+    this->pcl_point_cloud_in->height = height;
+    this->pcl_point_cloud_in->width = width;
+
+    /** Bilateral filter **/
+    envire::sam::bilateralFilter(this->pcl_point_cloud_in,
+            bfilter_paramaters.spatial_width,
+            bfilter_paramaters.range_sigma,
+            this->pcl_point_cloud_in);
+
+    #ifdef DEBUG_PRINTS
+    std::cerr<<"Finished Bilateral Filter\n";
+    #endif
+
+    /** Get current point cloud in the node **/
+    gtsam::Symbol frame_id = gtsam::Symbol(this->pose_key, this->pose_idx);
+    std::vector<envire::core::ItemBase::Ptr> items = this->_transform_graph.getItems(frame_id);
+
+    /** Merge with the existing point cloud **/
+    boost::intrusive_ptr<envire::sam::PointCloudItem> point_cloud_item;
+    if (items.size() > 1)
+    {
+        /** Get the current point cloud **/
+        point_cloud_item = boost::static_pointer_cast<envire::sam::PointCloudItem>(items[1]);
+
+        /** Integrate fields **/
+        point_cloud_item->getData() += *this->pcl_point_cloud_in;
+    }
+    else
+    {
+        point_cloud_item->setData(*this->pcl_point_cloud_in);
+        this->_transform_graph.addItemToFrame(frame_id, point_cloud_item);
+    }
+}
+
 void ESAM::printFactorGraph(const std::string &title)
 {
     this->_factor_graph.print(title);
@@ -383,4 +473,3 @@ void ESAM::graphViz(const std::string &filename)
     envire::core::GraphViz viz;
     viz.write(this->_transform_graph, filename);
 }
- 

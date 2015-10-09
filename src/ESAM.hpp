@@ -47,6 +47,8 @@
 /** Values to estimate **/
 #include <gtsam/nonlinear/Values.h>
 
+/*8 Envire SAM **/
+#include <envire_sam/Configuration.hpp>
 #include <envire_sam/Conversions.hpp>
 #include <envire_sam/Filters.hpp>
 #include <envire_sam/Features.hpp>
@@ -56,15 +58,11 @@ namespace envire { namespace sam
     /** PCL TYPES **/
     typedef pcl::PointXYZRGB PointType;
     typedef pcl::PointCloud<PointType> PCLPointCloud;
-    typedef typename PCLPointCloud::Ptr PCLPointCloudPtr;
+    typedef PCLPointCloud::Ptr PCLPointCloudPtr;
 
-    class PoseItem: public envire::core::Item<base::TransformWithCovariance>
-    {
-    };
-
-    class PointCloudItem: public envire::core::Item<PCLPointCloud>
-    {
-    };
+    /** Transform Graph types **/
+    typedef envire::core::Item<base::TransformWithCovariance> PoseItem;
+    typedef envire::core::Item<PCLPointCloud> PointCloudItem;
 
     /**
      * A class to perform SAM using PCL and Envire
@@ -86,7 +84,7 @@ namespace envire { namespace sam
         gtsam::NonlinearFactorGraph _factor_graph;
 
         /** Optimzation **/
-        gtsam::GaussNewtonParams parameters;
+        gtsam::GaussNewtonParams optimization_parameters;
 
         /** Marginals in the estimation **/
         boost::shared_ptr<gtsam::Marginals> marginals;
@@ -97,20 +95,38 @@ namespace envire { namespace sam
         /** Input point cloud in pcl **/
         PCLPointCloudPtr pcl_point_cloud_in;
 
+        /** Filter parameters **/
+        BilateralFilterParams bfilter_paramaters;
+
+        /** Outlier parameters **/
+        OutlierRemovalParams outlier_paramaters;
+
     public:
 
         /** Constructors
          */
         ESAM();
 
-        ESAM(const ::base::TransformWithCovariance &pose_with_cov,
+        ESAM(const ::base::Pose &pose, const ::base::Vector6d &var_pose,
                 const char pose_key, const char landmark_key);
 
         ESAM(const ::base::Pose &pose, const ::base::Matrix6d &cov_pose,
                 const char pose_key, const char landmark_key);
 
+        ESAM(const ::base::TransformWithCovariance &pose_with_cov,
+                const char pose_key, const char landmark_key,
+                const BilateralFilterParams &bfilter,
+                const OutlierRemovalParams &outliers);
+
+        ESAM(const ::base::Pose &pose, const ::base::Matrix6d &cov_pose,
+                const char pose_key, const char landmark_key,
+                const BilateralFilterParams &bfilter,
+                const OutlierRemovalParams &outliers);
+
         ESAM(const ::base::Pose &pose, const ::base::Vector6d &var_pose, 
-                const char pose_key, const char landmark_key);
+                const char pose_key, const char landmark_key,
+                const BilateralFilterParams &bfilter,
+                const OutlierRemovalParams &outliers);
 
         ~ESAM();
 
@@ -151,6 +167,8 @@ namespace envire { namespace sam
         ::base::samples::RigidBodyState getRbsPose(const std::string &frame_id);
 
         std::vector< ::base::samples::RigidBodyState > getRbsPoses();
+
+        void pushPointCloud(const ::base::samples::Pointcloud &base_point_cloud, const int height, const int width, const Eigen::Affine3d &tf = Eigen::Affine3d::Identity());
 
         void printMarginals();
 
