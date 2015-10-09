@@ -12,6 +12,7 @@
 #ifndef __ENVIRE_SAM_FILTERS__
 #define __ENVIRE_SAM_FILTERS__
 
+
 #include <pcl/point_types.h>
 #include <pcl/point_cloud.h>
 #include <pcl/filters/voxel_grid.h>
@@ -21,7 +22,6 @@
 
 namespace envire { namespace sam
 {
-
     static void downsample (pcl::PointCloud<pcl::PointXYZRGB>::Ptr &points, float leaf_size, pcl::PointCloud<pcl::PointXYZRGB>::Ptr &downsampled_out)
     {
 
@@ -33,7 +33,7 @@ namespace envire { namespace sam
       return;
     };
 
-    static void bilateral_filter(pcl::PointCloud<pcl::PointXYZRGB>::Ptr &points, const double &spatial_width, const double &range_sigma , pcl::PointCloud<pcl::PointXYZRGB>::Ptr &filtered_out)
+    static void bilateralFilter(const pcl::PointCloud<pcl::PointXYZRGB>::Ptr &points, const double &spatial_width, const double &range_sigma , pcl::PointCloud<pcl::PointXYZRGB>::Ptr &filtered_out)
     {
         pcl::FastBilateralFilter<pcl::PointXYZRGB> b_filter;
 
@@ -63,7 +63,7 @@ namespace envire { namespace sam
         ror.setInputCloud(points);
         ror.filter (*outliersampled_out);
     };
-    
+
     static void radiusOutlierRemoval(pcl::PointCloud<pcl::PointXYZRGB>::Ptr &points, const double &mean_k, const double &std_mul, pcl::PointCloud<pcl::PointXYZRGB>::Ptr &outliersampled_out)
     {
         pcl::StatisticalOutlierRemoval<pcl::PointXYZRGB> sor;

@@ -1,6 +1,7 @@
 rock_library(envire_sam
     HEADERS Conversions.hpp
             Features.hpp
+            Configuration.hpp
             Filters.hpp
             ESAM.hpp
 
