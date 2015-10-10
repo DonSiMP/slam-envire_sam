@@ -25,7 +25,7 @@ namespace envire { namespace sam
 {
 
     template <class PointType>
-    static void toPCLPointCloud(const ::base::samples::Pointcloud & pc,
+    void toPCLPointCloud(const ::base::samples::Pointcloud & pc,
             pcl::PointCloud< PointType >& pcl_pc, double density = 1.0)
     {
         pcl_pc.clear();
@@ -86,7 +86,7 @@ namespace envire { namespace sam
     };
 
     template <class PointType>
-    static void fromPCLPointCloud(::base::samples::Pointcloud & pc, const pcl::PointCloud< PointType >& pcl_pc, double density = 1.0)
+    void fromPCLPointCloud(::base::samples::Pointcloud & pc, const pcl::PointCloud< PointType >& pcl_pc, double density = 1.0)
     {
         std::vector<bool> mask;
         unsigned sample_count = (unsigned)(density * pcl_pc.size());
@@ -134,75 +134,6 @@ namespace envire { namespace sam
         }
     };
 
-    static void transformPointCloud(const ::base::samples::Pointcloud & pc, ::base::samples::Pointcloud & transformed_pc, const Eigen::Affine3d& transformation)
-    {
-        transformed_pc.points.clear();
-        for(std::vector< ::base::Point >::const_iterator it = pc.points.begin(); it != pc.points.end(); it++)
-        {
-            transformed_pc.points.push_back(transformation * (*it));
-        }
-    };
-
-    static void transformPointCloud(::base::samples::Pointcloud & pc, const Eigen::Affine3d& transformation)
-    {
-        for(std::vector< ::base::Point >::iterator it = pc.points.begin(); it != pc.points.end(); it++)
-        {
-            *it = (transformation * (*it));
-        }
-    };
-
-    template <class PointType>
-    static void transformPointCloud(pcl::PointCloud< PointType >&pcl_pc, const Eigen::Affine3d& transformation)
-    {
-        typename std::vector< PointType, Eigen::aligned_allocator<PointType> >::iterator PointTypeIterator;
-        /**for(PointTypeIterator it = pcl_pc.begin(); it != pcl_pc.end(); it++)
-        {
-            Eigen::Vector3d point (it->x, it->y, it->z);
-            point = transformation * point;
-            PointType pcl_point;
-            pcl_point.x = point[0]; pcl_point.y = point[1]; pcl_point.z = point[2];
-            *it = pcl_point;
-        }*/
-    };
-
-    static void writePlyFile( const base::samples::Pointcloud& points, const std::string& file )
-    {
-        std::ofstream data( file.c_str() );
-
-        data << "ply" << "\n";
-        data << "format ascii 1.0\n";
-
-        data << "element vertex " << points.points.size() <<  "\n";
-        data << "property float x\n";
-        data << "property float y\n";
-        data << "property float z\n";
-
-        if( !points.colors.empty() )
-        {
-        data << "property uchar red\n";
-        data << "property uchar green\n";
-        data << "property uchar blue\n";
-        data << "property uchar alpha\n";
-        }
-        data << "end_header\n";
-
-        for( size_t i = 0; i < points.points.size(); i++ )
-        {
-        data 
-            << points.points[i].x() << " "
-            << points.points[i].y() << " "
-            << points.points[i].z() << " ";
-        if( !points.colors.empty() )
-        {
-            data 
-            << (int)(points.colors[i].x()*255) << " "
-            << (int)(points.colors[i].y()*255) << " "
-            << (int)(points.colors[i].z()*255) << " "
-            << (int)(points.colors[i].w()*255) << " ";
-        }
-        data << "\n";
-        }
-    };
 }}
 #endif
 

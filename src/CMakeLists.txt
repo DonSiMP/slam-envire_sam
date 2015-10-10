@@ -1,10 +1,7 @@
 rock_library(envire_sam
     HEADERS Conversions.hpp
-            Features.hpp
             Configuration.hpp
-            Filters.hpp
             ESAM.hpp
-
     SOURCES ESAM.cpp
     DEPS_CMAKE Boost
     DEPS_PKGCONFIG base-types
