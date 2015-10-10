@@ -466,23 +466,36 @@ void ESAM::pushPointCloud(const ::base::samples::Pointcloud &base_point_cloud, c
 
     #ifdef DEBUG_PRINTS
     std::cout<<"Convert point cloud\n";
+    std::cout<<"pcl_point_cloud.size(): "<<pcl_point_cloud->size()<<"\n";
+    #endif
+
+    /** Downsample **/
+    const float voxel_grid_leaf_size = 0.01;
+    PCLPointCloudPtr downsample_point_cloud (new PCLPointCloud);
+    this->downsample (pcl_point_cloud, voxel_grid_leaf_size, downsample_point_cloud);
+
+    #ifdef DEBUG_PRINTS
+    std::cout<<"Downsample point cloud\n";
+    std::cout<<"downsample_points.size(): "<<downsample_point_cloud->size()<<"\n";
     #endif
 
     /** Remove Outliers **/
+    PCLPointCloudPtr outlier_point_cloud(new PCLPointCloud);
     if (outlier_paramaters.type == RADIUS)
     {
-       // this->
+        this->radiusOutlierRemoval(downsample_point_cloud, outlier_paramaters.parameter_one,
+                outlier_paramaters.parameter_two, outlier_point_cloud);
     }
     else if (outlier_paramaters.type == STATISTICAL)
     {
-       // this->statisticalOutlierRemoval()
+        this->statisticalOutlierRemoval(downsample_point_cloud, outlier_paramaters.parameter_one,
+                outlier_paramaters.parameter_two, outlier_point_cloud);
     }
 
-
-    /** Downsample **/
-    const float voxel_grid_leaf_size = 0.05;
-    PCLPointCloudPtr downsample_points (new PCLPointCloud);
-    this->downsample (pcl_point_cloud, voxel_grid_leaf_size, downsample_points);
+    #ifdef DEBUG_PRINTS
+    std::cout<<"Outlier point cloud\n";
+    std::cout<<"outlier_points.size(): "<<outlier_point_cloud->size()<<"\n";
+    #endif
 
     /** Get current point cloud in the node **/
     gtsam::Symbol frame_id = gtsam::Symbol(this->pose_key, this->pose_idx);
@@ -499,7 +512,7 @@ void ESAM::pushPointCloud(const ::base::samples::Pointcloud &base_point_cloud, c
         envire::sam::PointCloudItem::Ptr point_cloud_item = boost::static_pointer_cast<envire::sam::PointCloudItem>(items[1]);
 
         /** Integrate fields **/
-        point_cloud_item->getData() += *downsample_points;
+        point_cloud_item->getData() += *outlier_point_cloud;
 
         #ifdef DEBUG_PRINTS
         std::cout<<"Merging Point cloud with the existing one\n";
@@ -510,7 +523,7 @@ void ESAM::pushPointCloud(const ::base::samples::Pointcloud &base_point_cloud, c
     else
     {
         envire::sam::PointCloudItem::Ptr point_cloud_item(new PointCloudItem);
-        point_cloud_item->setData(*downsample_points);
+        point_cloud_item->setData(*outlier_point_cloud);
         this->_transform_graph.addItemToFrame(frame_id, point_cloud_item);
 
         #ifdef DEBUG_PRINTS
@@ -610,7 +623,7 @@ void ESAM::transformPointCloud(pcl::PointCloud< PointType >&pcl_pc, const Eigen:
     }
 }
 
-void ESAM::downsample (pcl::PointCloud<PointType>::Ptr &points, float leaf_size, pcl::PointCloud<PointType>::Ptr &downsampled_out)
+void ESAM::downsample (PCLPointCloud::Ptr &points, float leaf_size, PCLPointCloud::Ptr &downsampled_out)
 {
 
   pcl::VoxelGrid<PointType> vox_grid;
@@ -621,7 +634,7 @@ void ESAM::downsample (pcl::PointCloud<PointType>::Ptr &points, float leaf_size,
   return;
 }
 
-void ESAM::bilateralFilter(const pcl::PointCloud<PointType>::Ptr &points, const double &spatial_width, const double &range_sigma , pcl::PointCloud<PointType>::Ptr &filtered_out)
+void ESAM::bilateralFilter(const PCLPointCloud::Ptr &points, const double &spatial_width, const double &range_sigma , PCLPointCloud::Ptr &filtered_out)
 {
     pcl::FastBilateralFilter<PointType> b_filter;
 
@@ -630,14 +643,14 @@ void ESAM::bilateralFilter(const pcl::PointCloud<PointType>::Ptr &points, const 
     b_filter.setSigmaR(range_sigma);
 
     b_filter.setInputCloud(points);
-    filtered_out->width = points->width;
-    filtered_out->height = points->height;
+    //filtered_out->width = points->width;
+    //filtered_out->height = points->height;
     std::cout<<"width: "<<filtered_out->width<<"\n";
     std::cout<<"height: "<<filtered_out->height<<"\n";
     b_filter.filter(*filtered_out);
 }
 
-void ESAM::statisticalOutlierRemoval(pcl::PointCloud<PointType>::Ptr &points, const double &radius, const double &min_neighbors, pcl::PointCloud<PointType>::Ptr &outliersampled_out)
+void ESAM::radiusOutlierRemoval(PCLPointCloud::Ptr &points, const double &radius, const double &min_neighbors, PCLPointCloud::Ptr &outliersampled_out)
 {
     pcl::RadiusOutlierRemoval<PointType> ror;
 
@@ -646,15 +659,15 @@ void ESAM::statisticalOutlierRemoval(pcl::PointCloud<PointType>::Ptr &points, co
 
     #ifdef DEBUG_PRINTS
     std::cout<<"RADIUS FILTER\n";
+    std::cout<<"radius: "<< radius<<"\n";
+    std::cout<<"min_neighbors: "<< min_neighbors<<"\n";
     #endif
-    pcl::PointCloud<PointType> filtered_cloud;
-    outliersampled_out->width = points->width;
-    outliersampled_out->height = points->height;
+    PCLPointCloud filtered_cloud;
     ror.setInputCloud(points);
     ror.filter (*outliersampled_out);
 }
 
-void ESAM::radiusOutlierRemoval(pcl::PointCloud<PointType>::Ptr &points, const double &mean_k, const double &std_mul, pcl::PointCloud<PointType>::Ptr &outliersampled_out)
+void ESAM::statisticalOutlierRemoval(PCLPointCloud::Ptr &points, const double &mean_k, const double &std_mul, PCLPointCloud::Ptr &outliersampled_out)
 {
     pcl::StatisticalOutlierRemoval<PointType> sor;
 
@@ -663,14 +676,14 @@ void ESAM::radiusOutlierRemoval(pcl::PointCloud<PointType>::Ptr &points, const d
 
     #ifdef DEBUG_PRINTS
     std::cout<<"STATISTICAL FILTER\n";
+    std::cout<<"mean_k: "<<mean_k<<"\n";
+    std::cout<<"std_mul: "<<std_mul<<"\n";
     #endif
-    outliersampled_out->width = points->width;
-    outliersampled_out->height = points->height;
     sor.setInputCloud(points);
     sor.filter (*outliersampled_out);
 }
 
-void ESAM::computeNormals (pcl::PointCloud<PointType>::Ptr &points,
+void ESAM::computeNormals (PCLPointCloud::Ptr &points,
                                 float normal_radius,
                                 pcl::PointCloud<pcl::Normal>::Ptr &normals_out)
 {
@@ -691,7 +704,7 @@ void ESAM::computeNormals (pcl::PointCloud<PointType>::Ptr &points,
   norm_est.compute (*normals_out);
 }
 
-void ESAM::computePFHFeatures (pcl::PointCloud<PointType>::Ptr &points,
+void ESAM::computePFHFeatures (PCLPointCloud::Ptr &points,
                       pcl::PointCloud<pcl::Normal>::Ptr &normals,
                       float feature_radius,
                       pcl::PointCloud<pcl::PFHSignature125>::Ptr &descriptors_out)
@@ -715,7 +728,7 @@ void ESAM::computePFHFeatures (pcl::PointCloud<PointType>::Ptr &points,
     return;
 }
 
-void ESAM::detectKeypoints (pcl::PointCloud<PointType>::Ptr &points,
+void ESAM::detectKeypoints (PCLPointCloud::Ptr &points,
           float min_scale, int nr_octaves, int nr_scales_per_octave, float min_contrast,
           pcl::PointCloud<pcl::PointWithScale>::Ptr &keypoints_out)
 {
@@ -737,7 +750,7 @@ void ESAM::detectKeypoints (pcl::PointCloud<PointType>::Ptr &points,
     return;
 }
 
-void ESAM::computePFHFeaturesAtKeypoints (pcl::PointCloud<PointType>::Ptr &points,
+void ESAM::computePFHFeaturesAtKeypoints (PCLPointCloud::Ptr &points,
                            pcl::PointCloud<pcl::Normal>::Ptr &normals,
                            pcl::PointCloud<pcl::PointWithScale>::Ptr &keypoints, float feature_radius,
                            pcl::PointCloud<pcl::PFHSignature125>::Ptr &descriptors_out)
@@ -758,7 +771,7 @@ void ESAM::computePFHFeaturesAtKeypoints (pcl::PointCloud<PointType>::Ptr &point
     * values, so when we copy from PointWithScale to PointXYZRGBA, the new r,g,b fields will all be zero.
     */
 
-    pcl::PointCloud<PointType>::Ptr keypoints_xyzrgb (new pcl::PointCloud<PointType>);
+    PCLPointCloud::Ptr keypoints_xyzrgb (new PCLPointCloud);
     pcl::copyPointCloud (*keypoints, *keypoints_xyzrgb);
 
     // Use all of the points for analyzing the local structure of the cloud

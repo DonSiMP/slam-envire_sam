@@ -205,27 +205,27 @@ namespace envire { namespace sam
 
     protected:
 
-        void downsample (pcl::PointCloud<PointType>::Ptr &points, float leaf_size, pcl::PointCloud<PointType>::Ptr &downsampled_out);
+        void downsample (PCLPointCloud::Ptr &points, float leaf_size, PCLPointCloud::Ptr &downsampled_out);
 
-        void bilateralFilter(const pcl::PointCloud<PointType>::Ptr &points, const double &spatial_width, const double &range_sigma , pcl::PointCloud<PointType>::Ptr &filtered_out);
+        void bilateralFilter(const PCLPointCloud::Ptr &points, const double &spatial_width, const double &range_sigma , PCLPointCloud::Ptr &filtered_out);
 
-        void statisticalOutlierRemoval(pcl::PointCloud<PointType>::Ptr &points, const double &radius, const double &min_neighbors, pcl::PointCloud<PointType>::Ptr &outliersampled_out);
+        void radiusOutlierRemoval(PCLPointCloud::Ptr &points, const double &mean_k, const double &std_mul, PCLPointCloud::Ptr &outliersampled_out);
 
-        void radiusOutlierRemoval(pcl::PointCloud<PointType>::Ptr &points, const double &mean_k, const double &std_mul, pcl::PointCloud<PointType>::Ptr &outliersampled_out);
+        void statisticalOutlierRemoval(PCLPointCloud::Ptr &points, const double &radius, const double &min_neighbors, PCLPointCloud::Ptr &outliersampled_out);
 
-        void computeNormals (pcl::PointCloud<PointType>::Ptr &points,
+        void computeNormals (PCLPointCloud::Ptr &points,
                                 float normal_radius,
                                 pcl::PointCloud<pcl::Normal>::Ptr &normals_out);
 
-        void computePFHFeatures (pcl::PointCloud<PointType>::Ptr &points,
+        void computePFHFeatures (PCLPointCloud::Ptr &points,
                       pcl::PointCloud<pcl::Normal>::Ptr &normals,
                       float feature_radius,
                       pcl::PointCloud<pcl::PFHSignature125>::Ptr &descriptors_out);
-        void detectKeypoints (pcl::PointCloud<PointType>::Ptr &points,
+        void detectKeypoints (PCLPointCloud::Ptr &points,
               float min_scale, int nr_octaves, int nr_scales_per_octave, float min_contrast,
               pcl::PointCloud<pcl::PointWithScale>::Ptr &keypoints_out);
 
-        void computePFHFeaturesAtKeypoints (pcl::PointCloud<PointType>::Ptr &points,
+        void computePFHFeaturesAtKeypoints (PCLPointCloud::Ptr &points,
                            pcl::PointCloud<pcl::Normal>::Ptr &normals,
                            pcl::PointCloud<pcl::PointWithScale>::Ptr &keypoints, float feature_radius,
                            pcl::PointCloud<pcl::PFHSignature125>::Ptr &descriptors_out);
