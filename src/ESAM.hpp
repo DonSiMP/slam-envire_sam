@@ -225,7 +225,7 @@ namespace envire { namespace sam
               float min_scale, int nr_octaves, int nr_scales_per_octave, float min_contrast,
               pcl::PointCloud<pcl::PointWithScale>::Ptr &keypoints_out);
 
-        void computePFHFeaturesAtKeypoints (PCLPointCloud::Ptr &points,
+        void computePFHFeaturesAtKeypoints (pcl::PointCloud<PointType>::Ptr &points,
                            pcl::PointCloud<pcl::Normal>::Ptr &normals,
                            pcl::PointCloud<pcl::PointWithScale>::Ptr &keypoints, float feature_radius,
                            pcl::PointCloud<pcl::PFHSignature125>::Ptr &descriptors_out);

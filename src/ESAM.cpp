@@ -469,7 +469,7 @@ void ESAM::pushPointCloud(const ::base::samples::Pointcloud &base_point_cloud, c
     std::cout<<"pcl_point_cloud.size(): "<<pcl_point_cloud->size()<<"\n";
     #endif
 
-    /** Downsample **/
+    /** Downsample, lost the organized point cloud **/
     const float voxel_grid_leaf_size = 0.01;
     PCLPointCloudPtr downsample_point_cloud (new PCLPointCloud);
     this->downsample (pcl_point_cloud, voxel_grid_leaf_size, downsample_point_cloud);
@@ -477,12 +477,15 @@ void ESAM::pushPointCloud(const ::base::samples::Pointcloud &base_point_cloud, c
     #ifdef DEBUG_PRINTS
     std::cout<<"Downsample point cloud\n";
     std::cout<<"downsample_points.size(): "<<downsample_point_cloud->size()<<"\n";
+    std::cout<<"Point width: " << downsample_point_cloud->width<<" Height : "<<downsample_point_cloud->height << std::endl;
+    std::cout<<"Point cloud after dowsampling: " << downsample_point_cloud->width * downsample_point_cloud->height << " data points." << std::endl;
     #endif
 
     /** Remove Outliers **/
     PCLPointCloudPtr outlier_point_cloud(new PCLPointCloud);
     if (outlier_paramaters.type == RADIUS)
     {
+        /** Radius need organized point clouds **/
         this->radiusOutlierRemoval(downsample_point_cloud, outlier_paramaters.parameter_one,
                 outlier_paramaters.parameter_two, outlier_point_cloud);
     }
@@ -513,6 +516,11 @@ void ESAM::pushPointCloud(const ::base::samples::Pointcloud &base_point_cloud, c
 
         /** Integrate fields **/
         point_cloud_item->getData() += *outlier_point_cloud;
+
+        /** Downsample the union **/
+        PCLPointCloudPtr point_cloud_in_node = boost::make_shared<PCLPointCloud>(point_cloud_item->getData());
+        this->downsample (point_cloud_in_node, voxel_grid_leaf_size, downsample_point_cloud);
+        point_cloud_item->setData(*downsample_point_cloud.get());
 
         #ifdef DEBUG_PRINTS
         std::cout<<"Merging Point cloud with the existing one\n";
@@ -643,8 +651,8 @@ void ESAM::bilateralFilter(const PCLPointCloud::Ptr &points, const double &spati
     b_filter.setSigmaR(range_sigma);
 
     b_filter.setInputCloud(points);
-    //filtered_out->width = points->width;
-    //filtered_out->height = points->height;
+    filtered_out->width = points->width;
+    filtered_out->height = points->height;
     std::cout<<"width: "<<filtered_out->width<<"\n";
     std::cout<<"height: "<<filtered_out->height<<"\n";
     b_filter.filter(*filtered_out);
