@@ -411,7 +411,7 @@ PCLPointCloud &ESAM::getPointCloud(const std::string &frame_id)
     }
 }
 
-void ESAM::mergePointClouds(PCLPointCloud &merged_point_cloud)
+void ESAM::mergePointClouds(PCLPointCloud &merged_point_cloud, bool downsample)
 {
     merged_point_cloud.clear();
     for(register unsigned int i=0; i<this->pose_idx+1; ++i)
@@ -424,12 +424,22 @@ void ESAM::mergePointClouds(PCLPointCloud &merged_point_cloud)
         merged_point_cloud += local_points;
         std::cout<<"local_points.size(); "<<local_points.size()<<"\n";
     }
+
+    /** Downsample **/
+    if (downsample)
+    {
+        PCLPointCloudPtr merged_point_cloud_ptr = boost::make_shared<PCLPointCloud>(merged_point_cloud);
+        PCLPointCloudPtr downsample_point_cloud (new PCLPointCloud);
+        this->downsample (merged_point_cloud_ptr, 0.01, downsample_point_cloud);
+
+        merged_point_cloud = *downsample_point_cloud;
+    }
 }
 
-void ESAM::mergePointClouds(base::samples::Pointcloud &base_point_cloud)
+void ESAM::mergePointClouds(base::samples::Pointcloud &base_point_cloud, bool downsample)
 {
     PCLPointCloud pcl_point_cloud;
-    this->mergePointClouds(pcl_point_cloud);
+    this->mergePointClouds(pcl_point_cloud, downsample);
 
     std::cout<<"merged_points.size(); "<<pcl_point_cloud.size()<<"\n";
     base_point_cloud.points.clear();
@@ -469,10 +479,23 @@ void ESAM::pushPointCloud(const ::base::samples::Pointcloud &base_point_cloud, c
     std::cout<<"pcl_point_cloud.size(): "<<pcl_point_cloud->size()<<"\n";
     #endif
 
+    /** Remove Outliers **/
+    PCLPointCloudPtr outlier_point_cloud(new PCLPointCloud);
+    if (outlier_paramaters.type == RADIUS)
+    {
+        /** Radius need organized point clouds **/
+        this->radiusOutlierRemoval(pcl_point_cloud, outlier_paramaters.parameter_one,
+                outlier_paramaters.parameter_two, outlier_point_cloud);
+    }
+    else
+    {
+        outlier_point_cloud = pcl_point_cloud;
+    }
+
     /** Downsample, lost the organized point cloud **/
     const float voxel_grid_leaf_size = 0.01;
     PCLPointCloudPtr downsample_point_cloud (new PCLPointCloud);
-    this->downsample (pcl_point_cloud, voxel_grid_leaf_size, downsample_point_cloud);
+    this->downsample (outlier_point_cloud, voxel_grid_leaf_size, downsample_point_cloud);
 
     #ifdef DEBUG_PRINTS
     std::cout<<"Downsample point cloud\n";
@@ -481,18 +504,15 @@ void ESAM::pushPointCloud(const ::base::samples::Pointcloud &base_point_cloud, c
     std::cout<<"Point cloud after dowsampling: " << downsample_point_cloud->width * downsample_point_cloud->height << " data points." << std::endl;
     #endif
 
-    /** Remove Outliers **/
-    PCLPointCloudPtr outlier_point_cloud(new PCLPointCloud);
-    if (outlier_paramaters.type == RADIUS)
-    {
-        /** Radius need organized point clouds **/
-        this->radiusOutlierRemoval(downsample_point_cloud, outlier_paramaters.parameter_one,
-                outlier_paramaters.parameter_two, outlier_point_cloud);
-    }
-    else if (outlier_paramaters.type == STATISTICAL)
+    /** Statistical outlier removal **/
+    if (outlier_paramaters.type == STATISTICAL)
     {
         this->statisticalOutlierRemoval(downsample_point_cloud, outlier_paramaters.parameter_one,
                 outlier_paramaters.parameter_two, outlier_point_cloud);
+    }
+    else
+    {
+        outlier_point_cloud = downsample_point_cloud;
     }
 
     #ifdef DEBUG_PRINTS

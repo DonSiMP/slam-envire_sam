@@ -189,9 +189,9 @@ namespace envire { namespace sam
 
         PCLPointCloud &getPointCloud(const std::string &frame_id);
 
-        void mergePointClouds(PCLPointCloud &merged_point_cloud);
+        void mergePointClouds(PCLPointCloud &merged_point_cloud, bool downsample = false);
 
-        void mergePointClouds(base::samples::Pointcloud &base_point_cloud);
+        void mergePointClouds(base::samples::Pointcloud &base_point_cloud, bool downsample = false);
 
         void printMarginals();
 
