@@ -21,6 +21,9 @@
 #include <base/samples/RigidBodyState.hpp>
 #include <base/samples/Pointcloud.hpp>
 
+/** Eigen **/
+#include <Eigen/Eigenvalues>
+
 /** Envire **/
 #include <envire_core/all>
 
@@ -71,8 +74,9 @@ namespace envire { namespace sam
     typedef PCLPointCloud::Ptr PCLPointCloudPtr;
 
     /** Transform Graph types **/
-    typedef envire::core::Item<base::TransformWithCovariance> PoseItem;
+    typedef envire::core::SpatialItem<base::TransformWithCovariance> PoseItem;
     typedef envire::core::Item<PCLPointCloud> PointCloudItem;
+    typedef envire::core::Item< pcl::PointCloud<pcl::PFHSignature125> > DescriptorsItem;
 
     /**
      * A class to perform SAM using PCL and Envire
@@ -112,6 +116,9 @@ namespace envire { namespace sam
         /** Outlier parameters **/
         OutlierRemovalParams outlier_paramaters;
 
+        /** Keypoint parameters **/
+        SIFTKeypointParams keypoint_parameters;
+
     public:
 
         /** Constructors
@@ -127,17 +134,20 @@ namespace envire { namespace sam
         ESAM(const ::base::TransformWithCovariance &pose_with_cov,
                 const char pose_key, const char landmark_key,
                 const BilateralFilterParams &bfilter,
-                const OutlierRemovalParams &outliers);
+                const OutlierRemovalParams &outliers,
+                const SIFTKeypointParams &keypoint);
 
         ESAM(const ::base::Pose &pose, const ::base::Matrix6d &cov_pose,
                 const char pose_key, const char landmark_key,
                 const BilateralFilterParams &bfilter,
-                const OutlierRemovalParams &outliers);
+                const OutlierRemovalParams &outliers,
+                const SIFTKeypointParams &keypoint);
 
         ESAM(const ::base::Pose &pose, const ::base::Vector6d &var_pose, 
                 const char pose_key, const char landmark_key,
                 const BilateralFilterParams &bfilter,
-                const OutlierRemovalParams &outliers);
+                const OutlierRemovalParams &outliers,
+                const SIFTKeypointParams &keypoint);
 
         ~ESAM();
 
@@ -181,6 +191,8 @@ namespace envire { namespace sam
 
         void pushPointCloud(const ::base::samples::Pointcloud &base_point_cloud, const int height, const int width);
 
+        void keypointsPointCloud();
+
         void transformPointCloud(const ::base::samples::Pointcloud & pc, ::base::samples::Pointcloud & transformed_pc, const Eigen::Affine3d& transformation);
 
         void transformPointCloud(::base::samples::Pointcloud & pc, const Eigen::Affine3d& transformation);
@@ -192,6 +204,8 @@ namespace envire { namespace sam
         void mergePointClouds(PCLPointCloud &merged_point_cloud, bool downsample = false);
 
         void mergePointClouds(base::samples::Pointcloud &base_point_cloud, bool downsample = false);
+
+        void computeAlignedBoundingBox(const ::base::Pose &delta_pose, const ::base::Matrix3d &delta_cov);
 
         void printMarginals();
 
@@ -233,6 +247,8 @@ namespace envire { namespace sam
         void findFeatureCorrespondences (pcl::PointCloud<pcl::PFHSignature125>::Ptr &source_descriptors,
                       pcl::PointCloud<pcl::PFHSignature125>::Ptr &target_descriptors,
                       std::vector<int> &correspondences_out, std::vector<float> &correspondence_scores_out);
+
+        void printKeypoints(const pcl::PointCloud<pcl::PointWithScale>::Ptr keypoints);
 
     public:
 

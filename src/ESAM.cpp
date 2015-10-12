@@ -32,7 +32,13 @@ ESAM::ESAM(const ::base::Pose &pose, const ::base::Vector6d &var_pose,
 {
     BilateralFilterParams bfilter_default;
     OutlierRemovalParams outlier_default;
-    ESAM(pose, var_pose, pose_key, landmark_key, bfilter_default, outlier_default);
+    SIFTKeypointParams keypoint_default;
+    keypoint_default.min_scale = 0.06;
+    keypoint_default.nr_octaves = 3;
+    keypoint_default.nr_octaves_per_scale = 3;
+    keypoint_default.min_contrast = 10.0;
+
+    ESAM(pose, var_pose, pose_key, landmark_key, bfilter_default, outlier_default, keypoint_default);
 }
 
 ESAM::ESAM(const ::base::Pose &pose, const ::base::Matrix6d &cov_pose,
@@ -40,13 +46,20 @@ ESAM::ESAM(const ::base::Pose &pose, const ::base::Matrix6d &cov_pose,
 {
     BilateralFilterParams bfilter_default;
     OutlierRemovalParams outlier_default;
-    ESAM(pose, cov_pose, pose_key, landmark_key, bfilter_default, outlier_default);
+    SIFTKeypointParams keypoint_default;
+    keypoint_default.min_scale = 0.06;
+    keypoint_default.nr_octaves = 3;
+    keypoint_default.nr_octaves_per_scale = 3;
+    keypoint_default.min_contrast = 10.0;
+
+    ESAM(pose, cov_pose, pose_key, landmark_key, bfilter_default, outlier_default, keypoint_default);
 }
 
 ESAM::ESAM(const ::base::TransformWithCovariance &pose_with_cov,
         const char pose_key, const char landmark_key,
         const BilateralFilterParams &bfilter,
-        const OutlierRemovalParams &outliers)
+        const OutlierRemovalParams &outliers,
+        const SIFTKeypointParams &keypoint)
 {
     gtsam::Pose3 pose_0(gtsam::Rot3(pose_with_cov.orientation), gtsam::Point3(pose_with_cov.translation));
     gtsam::Matrix cov_matrix = pose_with_cov.cov;
@@ -76,7 +89,8 @@ ESAM::ESAM(const ::base::TransformWithCovariance &pose_with_cov,
 ESAM::ESAM(const ::base::Pose &pose, const ::base::Matrix6d &cov_pose,
         const char pose_key, const char landmark_key,
         const BilateralFilterParams &bfilter,
-        const OutlierRemovalParams &outliers)
+        const OutlierRemovalParams &outliers,
+        const SIFTKeypointParams &keypoint)
 {
 
     gtsam::Pose3 pose_0(gtsam::Rot3(pose.orientation), gtsam::Point3(pose.position));
@@ -107,7 +121,8 @@ ESAM::ESAM(const ::base::Pose &pose, const ::base::Matrix6d &cov_pose,
 ESAM::ESAM(const ::base::Pose &pose, const ::base::Vector6d &var_pose,
         const char pose_key, const char landmark_key,
         const BilateralFilterParams &bfilter,
-        const OutlierRemovalParams &outliers)
+        const OutlierRemovalParams &outliers,
+        const SIFTKeypointParams &keypoint)
 {
     gtsam::Pose3 pose_0(gtsam::Rot3(pose.orientation), gtsam::Point3(pose.position));
     gtsam::Vector variances = var_pose;
@@ -567,6 +582,92 @@ void ESAM::pushPointCloud(const ::base::samples::Pointcloud &base_point_cloud, c
     return;
 }
 
+void ESAM::keypointsPointCloud()
+{
+    /** Get current point cloud in the node **/
+    gtsam::Symbol frame_id = gtsam::Symbol(this->pose_key, this->pose_idx);
+    std::vector<envire::core::ItemBase::Ptr> items = this->_transform_graph.getItems(frame_id);
+    envire::sam::PointCloudItem::Ptr point_cloud_item = boost::static_pointer_cast<envire::sam::PointCloudItem>(items[1]);
+    PCLPointCloudPtr point_cloud_ptr = boost::make_shared<PCLPointCloud>(point_cloud_item->getData());
+
+    std::cout<<"FRAME ID: ";
+    frame_id.print();
+    std::cout<<" with "<<items.size()<<" items\n";
+
+    /**  Compute surface normals **/
+    const float normal_radius = 0.03;
+    pcl::PointCloud<pcl::Normal>::Ptr normals (new pcl::PointCloud<pcl::Normal>);
+    this->computeNormals (point_cloud_ptr, normal_radius, normals);
+
+    /** Compute keypoints **/
+    pcl::PointCloud<pcl::PointWithScale>::Ptr keypoints (new pcl::PointCloud<pcl::PointWithScale>);
+    this->detectKeypoints (point_cloud_ptr, keypoint_parameters.min_scale,
+            keypoint_parameters.nr_octaves, keypoint_parameters.nr_octaves_per_scale,
+            keypoint_parameters.min_contrast, keypoints);
+
+    #ifdef DEBUG_PRINTS
+    std::cout<<"DETECTED "<<keypoints->size()<<"KEYPOINTS\n";
+    this->printKeypoints(keypoints);
+    #endif
+
+    /**  Compute PFH features **/
+    const float feature_radius = 0.08;
+    pcl::PointCloud<pcl::PFHSignature125>::Ptr descriptors (new pcl::PointCloud<pcl::PFHSignature125>);
+    this->computePFHFeaturesAtKeypoints (point_cloud_ptr, normals, keypoints, feature_radius, descriptors);
+
+    #ifdef DEBUG_PRINTS
+    std::cout<<"DETECTED "<<descriptors->size()<<"FEATURE DESCRIPTORS\n";
+    #endif
+
+    /** Store the features descriptors in the envire node **/
+    envire::sam::DescriptorsItem::Ptr descriptors_item (new DescriptorsItem);
+    descriptors_item->setData(*descriptors);
+    this->_transform_graph.addItemToFrame(frame_id, descriptors_item);
+
+    return;
+}
+
+void ESAM::computeAlignedBoundingBox(const ::base::Pose &delta_pose, const ::base::Matrix3d &delta_cov)
+{
+
+    /** Compute standard deviation **/
+    Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> ev_delta(delta_cov);
+    Eigen::Vector3d std_delta = Eigen::Vector3d(ev_delta.eigenvalues().array().sqrt());
+
+    /** Get frame pose **/
+    gtsam::Symbol frame_id = gtsam::Symbol(this->pose_key, this->pose_idx);
+    std::vector<envire::core::ItemBase::Ptr> items = this->_transform_graph.getItems(frame_id);
+    envire::sam::PoseItem::Ptr pose_item = boost::static_pointer_cast<envire::sam::PoseItem>(items[0]);
+    boost::shared_ptr<base::TransformWithCovariance> pose_with_cov = boost::make_shared<base::TransformWithCovariance>(pose_item->getData());
+
+    /** Computer standard deviation **/
+    Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> ev_pose(pose_with_cov->cov.block<3,3>(0,0));
+    Eigen::Vector3d std_pose = Eigen::Vector3d(ev_pose.eigenvalues().array().sqrt());
+
+    /** Compute Bounding box limits **/
+    Eigen::Vector3d std_sum (std_pose+std_delta);
+    Eigen::Vector3d front_limit(delta_pose.position+std_sum);
+    Eigen::Vector3d rear_limit(-std_sum);
+
+    envire::core::AlignedBoundingBox::Ptr bounding_box(new AlignedBoundingBox);
+    bounding_box->extend(front_limit);
+    bounding_box->extend(rear_limit);
+
+        /** Set Bounding box **/
+    pose_item->setBoundary(bounding_box);
+
+    std::cout<<"FRAME ID: ";
+    frame_id.print();
+    std::cout<<" with "<<items.size()<<" items\n";
+    std::cout<<"COV POSE:\n"<<pose_with_cov->cov.block<3,3>(0,0)<<"\n";
+    std::cout<<"STD_POSE:\n"<<std_pose<<"\n";
+    std::cout<<"FRONT BOUNDING LIMITS:\n"<<front_limit<<"\n";
+    std::cout<<"REAR BOUNDING LIMITS:\n"<<rear_limit<<"\n";
+    std::cout<<"CENTER:\n"<<pose_item->centerOfBoundary()<<"\n";
+
+    return;
+}
+
 void ESAM::printFactorGraph(const std::string &title)
 {
     this->_factor_graph.print(title);
@@ -837,6 +938,20 @@ void ESAM::findFeatureCorrespondences (pcl::PointCloud<pcl::PFHSignature125>::Pt
         descriptor_kdtree.nearestKSearch (*source_descriptors, i, k, k_indices, k_squared_distances);
         correspondences_out[i] = k_indices[0];
         correspondence_scores_out[i] = k_squared_distances[0];
+    }
+
+    return;
+}
+
+void ESAM::printKeypoints(const pcl::PointCloud<pcl::PointWithScale>::Ptr keypoints)
+{
+
+    for (size_t i = 0; i < keypoints->size (); ++i)
+    {
+        /** Get the point data **/
+        const pcl::PointWithScale & p = keypoints->points[i];
+
+        std::cout<<"KEYPOINT: "<<p.x<<" "<<p.y<<" "<<p.z<<"\n";
     }
 
     return;
