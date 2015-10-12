@@ -37,6 +37,15 @@ namespace envire { namespace sam
         //RADIUS: number of neighbors that need to be present in order to be classified as an inlier(min_pts)
         float parameter_two;
     };
+
+    struct SIFTKeypointParams
+    {
+        float min_scale;
+        int nr_octaves;
+        int nr_octaves_per_scale;
+        float min_contrast;
+    };
+
 }}
 
 #endif
