@@ -463,6 +463,51 @@ void ESAM::mergePointClouds(base::samples::Pointcloud &base_point_cloud, bool do
     std::cout<<"base merged point cloud.size(); "<<base_point_cloud.points.size()<<"\n";
 }
 
+void ESAM::currentPointCloud(base::samples::Pointcloud &base_point_cloud, bool downsample)
+{
+    /** Get the current point cloud **/
+    gtsam::Symbol frame_id = gtsam::Symbol(this->pose_key, this->pose_idx-1);
+    PCLPointCloud current_point_cloud = this->getPointCloud(frame_id);
+
+    /** Downsample **/
+    if (downsample)
+    {
+        PCLPointCloudPtr current_point_cloud_ptr = boost::make_shared<PCLPointCloud>(current_point_cloud);
+        PCLPointCloudPtr downsample_point_cloud (new PCLPointCloud);
+        this->downsample (current_point_cloud_ptr, 0.01, downsample_point_cloud);
+        current_point_cloud = *downsample_point_cloud;
+    }
+
+    /** Convert to base point cloud **/
+    base_point_cloud.points.clear();
+    base_point_cloud.colors.clear();
+    envire::sam::fromPCLPointCloud<PointType>(base_point_cloud, current_point_cloud);
+}
+
+void ESAM::currentPointCloudtoPLY(const std::string &prefixname, bool downsample)
+{
+    /** Get the current point cloud **/
+    gtsam::Symbol frame_id = gtsam::Symbol(this->pose_key, this->pose_idx-1);
+    PCLPointCloud current_point_cloud = this->getPointCloud(frame_id);
+
+    /** Downsample **/
+    if (downsample)
+    {
+        PCLPointCloudPtr current_point_cloud_ptr = boost::make_shared<PCLPointCloud>(current_point_cloud);
+        PCLPointCloudPtr downsample_point_cloud (new PCLPointCloud);
+        this->downsample (current_point_cloud_ptr, 0.01, downsample_point_cloud);
+        current_point_cloud = *downsample_point_cloud;
+    }
+
+    /** Convert to base point cloud **/
+    base::samples::Pointcloud base_point_cloud;
+    envire::sam::fromPCLPointCloud<PointType>(base_point_cloud, current_point_cloud);
+
+    /** Write to PLY **/
+    std::string filename; filename = prefixname + static_cast<std::string>(frame_id) + ".ply";
+    this->writePlyFile(base_point_cloud, filename);
+}
+
 
 void ESAM::printMarginals()
 {
@@ -495,22 +540,29 @@ void ESAM::pushPointCloud(const ::base::samples::Pointcloud &base_point_cloud, c
     #endif
 
     /** Remove Outliers **/
-    PCLPointCloudPtr outlier_point_cloud(new PCLPointCloud);
+    PCLPointCloudPtr radius_point_cloud(new PCLPointCloud);
     if (outlier_paramaters.type == RADIUS)
     {
         /** Radius need organized point clouds **/
         this->radiusOutlierRemoval(pcl_point_cloud, outlier_paramaters.parameter_one,
-                outlier_paramaters.parameter_two, outlier_point_cloud);
+                outlier_paramaters.parameter_two, radius_point_cloud);
     }
     else
     {
-        outlier_point_cloud = pcl_point_cloud;
+        radius_point_cloud = pcl_point_cloud;
     }
+
+    pcl_point_cloud.reset();
+
+    /** Bilateral filter **/
+    PCLPointCloudPtr filter_point_cloud (new PCLPointCloud);
+    this->bilateralFilter(radius_point_cloud, bfilter_paramaters.spatial_width,
+                        bfilter_paramaters.range_sigma, filter_point_cloud);
 
     /** Downsample, lost the organized point cloud **/
     const float voxel_grid_leaf_size = 0.01;
     PCLPointCloudPtr downsample_point_cloud (new PCLPointCloud);
-    this->downsample (outlier_point_cloud, voxel_grid_leaf_size, downsample_point_cloud);
+    this->downsample (filter_point_cloud, voxel_grid_leaf_size, downsample_point_cloud);
 
     #ifdef DEBUG_PRINTS
     std::cout<<"Downsample point cloud\n";
@@ -520,19 +572,22 @@ void ESAM::pushPointCloud(const ::base::samples::Pointcloud &base_point_cloud, c
     #endif
 
     /** Statistical outlier removal **/
+    PCLPointCloudPtr statistical_point_cloud(new PCLPointCloud);
     if (outlier_paramaters.type == STATISTICAL)
     {
         this->statisticalOutlierRemoval(downsample_point_cloud, outlier_paramaters.parameter_one,
-                outlier_paramaters.parameter_two, outlier_point_cloud);
+                outlier_paramaters.parameter_two, statistical_point_cloud);
     }
     else
     {
-        outlier_point_cloud = downsample_point_cloud;
+        statistical_point_cloud = downsample_point_cloud;
     }
 
+    downsample_point_cloud.reset();
+
     #ifdef DEBUG_PRINTS
-    std::cout<<"Outlier point cloud\n";
-    std::cout<<"outlier_points.size(): "<<outlier_point_cloud->size()<<"\n";
+    std::cout<<"Statistical outlier point cloud\n";
+    std::cout<<"statistical_points.size(): "<<statistical_point_cloud->size()<<"\n";
     #endif
 
     /** Get current point cloud in the node **/
@@ -550,10 +605,11 @@ void ESAM::pushPointCloud(const ::base::samples::Pointcloud &base_point_cloud, c
         envire::sam::PointCloudItem::Ptr point_cloud_item = boost::static_pointer_cast<envire::sam::PointCloudItem>(items[1]);
 
         /** Integrate fields **/
-        point_cloud_item->getData() += *outlier_point_cloud;
+        point_cloud_item->getData() += *statistical_point_cloud;
 
         /** Downsample the union **/
         PCLPointCloudPtr point_cloud_in_node = boost::make_shared<PCLPointCloud>(point_cloud_item->getData());
+        PCLPointCloudPtr downsample_point_cloud (new PCLPointCloud);
         this->downsample (point_cloud_in_node, voxel_grid_leaf_size, downsample_point_cloud);
         point_cloud_item->setData(*downsample_point_cloud.get());
 
@@ -566,7 +622,7 @@ void ESAM::pushPointCloud(const ::base::samples::Pointcloud &base_point_cloud, c
     else
     {
         envire::sam::PointCloudItem::Ptr point_cloud_item(new PointCloudItem);
-        point_cloud_item->setData(*outlier_point_cloud);
+        point_cloud_item->setData(*statistical_point_cloud);
         this->_transform_graph.addItemToFrame(frame_id, point_cloud_item);
 
         #ifdef DEBUG_PRINTS
@@ -574,6 +630,8 @@ void ESAM::pushPointCloud(const ::base::samples::Pointcloud &base_point_cloud, c
         std::cout<<"Number points: "<<point_cloud_item->getData().size()<<"\n";
         #endif
     }
+
+    statistical_point_cloud.reset();
 
     #ifdef DEBUG_PRINTS
     std::cout<<"END!!\n";
@@ -627,45 +685,123 @@ void ESAM::keypointsPointCloud()
     return;
 }
 
-void ESAM::computeAlignedBoundingBox(const ::base::Pose &delta_pose, const ::base::Matrix3d &delta_cov)
+void ESAM::computeAlignedBoundingBox()
 {
+    /** Check that there is more than one frame **/
+    if (this->pose_idx ==0)
+        return;
 
-    /** Compute standard deviation **/
-    Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> ev_delta(delta_cov);
-    Eigen::Vector3d std_delta = Eigen::Vector3d(ev_delta.eigenvalues().array().sqrt());
+    /** Get the previous frame pose **/
+    gtsam::Symbol prev_frame_id = gtsam::Symbol(this->pose_key, this->pose_idx-1);
+    std::vector<envire::core::ItemBase::Ptr> prev_items = this->_transform_graph.getItems(prev_frame_id);
+    envire::sam::PoseItem::Ptr prev_pose_item = boost::static_pointer_cast<envire::sam::PoseItem>(prev_items[0]);
+    boost::shared_ptr<base::TransformWithCovariance> prev_pose = boost::make_shared<base::TransformWithCovariance>(prev_pose_item->getData());
 
-    /** Get frame pose **/
-    gtsam::Symbol frame_id = gtsam::Symbol(this->pose_key, this->pose_idx);
-    std::vector<envire::core::ItemBase::Ptr> items = this->_transform_graph.getItems(frame_id);
-    envire::sam::PoseItem::Ptr pose_item = boost::static_pointer_cast<envire::sam::PoseItem>(items[0]);
-    boost::shared_ptr<base::TransformWithCovariance> pose_with_cov = boost::make_shared<base::TransformWithCovariance>(pose_item->getData());
+    /** Get the current frame pose **/
+    gtsam::Symbol current_frame_id = gtsam::Symbol(this->pose_key, this->pose_idx);
+    std::vector<envire::core::ItemBase::Ptr> current_items = this->_transform_graph.getItems(current_frame_id);
+    envire::sam::PoseItem::Ptr current_pose_item = boost::static_pointer_cast<envire::sam::PoseItem>(current_items[0]);
+    boost::shared_ptr<base::TransformWithCovariance> current_pose = boost::make_shared<base::TransformWithCovariance>(current_pose_item->getData());
 
     /** Computer standard deviation **/
-    Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> ev_pose(pose_with_cov->cov.block<3,3>(0,0));
-    Eigen::Vector3d std_pose = Eigen::Vector3d(ev_pose.eigenvalues().array().sqrt());
+    Eigen::Vector3d std_prev_pose = prev_pose->cov.block<3,3>(0,0).diagonal().array().sqrt();
+    Eigen::Vector3d std_current_pose = current_pose->cov.block<3,3>(0,0).diagonal().array().sqrt();
+    std_prev_pose[2] = 0.5; std_current_pose[2] = 0.5;
 
-    /** Compute Bounding box limits **/
-    Eigen::Vector3d std_sum (std_pose+std_delta);
-    Eigen::Vector3d front_limit(delta_pose.position+std_sum);
-    Eigen::Vector3d rear_limit(-std_sum);
+    /** Compute Bounding box limits in the global frame **/
+    Eigen::Vector3d front_limit(current_pose->translation);
+    Eigen::Vector3d rear_limit(prev_pose->translation);
 
+    /** Increase the limits using the standard deviation **/
+    for (register int i=0; i<3; ++i)
+    {
+        (front_limit[i] > 0) ? (front_limit[i] + std_current_pose[i]) : (front_limit[i] - std_current_pose[i]);
+        (rear_limit[i] > 0) ? (rear_limit[i] + std_prev_pose[i]) : (rear_limit[i] - std_prev_pose[i]);
+    }
+
+    /** Set the Bounding box **/
     envire::core::AlignedBoundingBox::Ptr bounding_box(new AlignedBoundingBox);
     bounding_box->extend(front_limit);
     bounding_box->extend(rear_limit);
 
-        /** Set Bounding box **/
-    pose_item->setBoundary(bounding_box);
+    /** Assign the Bounding box to the item **/
+    prev_pose_item->setBoundary(bounding_box);
 
     std::cout<<"FRAME ID: ";
-    frame_id.print();
-    std::cout<<" with "<<items.size()<<" items\n";
-    std::cout<<"COV POSE:\n"<<pose_with_cov->cov.block<3,3>(0,0)<<"\n";
-    std::cout<<"STD_POSE:\n"<<std_pose<<"\n";
+    prev_frame_id.print();
+    std::cout<<" with "<<prev_items.size()<<" items\n";
     std::cout<<"FRONT BOUNDING LIMITS:\n"<<front_limit<<"\n";
     std::cout<<"REAR BOUNDING LIMITS:\n"<<rear_limit<<"\n";
-    std::cout<<"CENTER:\n"<<pose_item->centerOfBoundary()<<"\n";
+    std::cout<<"CENTER:\n"<<prev_pose_item->centerOfBoundary()<<"\n";
 
     return;
+}
+
+void ESAM::detectLandmarks()
+{
+    /** Compute aligned bounding box for previous frame using the current frame **/
+    std::cout<<"COMPUTE BOUNDING BOX\n";
+    this->computeAlignedBoundingBox();
+
+    /** Find next frame intersections **/
+    gtsam::Symbol container_frame_id = gtsam::Symbol(this->pose_key, this->pose_idx-1);
+    std::cout<<"CONTAINER FRAME ID: "; container_frame_id.print();
+    this->containsFrames(container_frame_id);
+
+    /** Features Correspondences **/
+
+    /** Landmarks to Factor graph **/
+
+    return;
+}
+
+bool ESAM::intersects(const gtsam::Symbol &frame1, const gtsam::Symbol &frame2)
+{
+    /** Get Spatial item of the first frame **/
+    std::vector<envire::core::ItemBase::Ptr> items1 = this->_transform_graph.getItems(frame1);
+    envire::sam::PoseItem::Ptr pose_item1 = boost::static_pointer_cast<envire::sam::PoseItem>(items1[0]);
+
+    /** Get Spatial item of the second frame **/
+    std::vector<envire::core::ItemBase::Ptr> items2 = this->_transform_graph.getItems(frame2);
+    envire::sam::PoseItem::Ptr pose_item2 = boost::static_pointer_cast<envire::sam::PoseItem>(items2[0]);
+
+    /** Check intersection **/
+    return pose_item1->intersects(*pose_item2);
+}
+
+bool ESAM::contains(const gtsam::Symbol &container_frame, const gtsam::Symbol &query_frame)
+{
+    /** Get Spatial item of the source frame **/
+    std::vector<envire::core::ItemBase::Ptr> items1 = this->_transform_graph.getItems(container_frame);
+    envire::sam::PoseItem::Ptr pose_item1 = boost::static_pointer_cast<envire::sam::PoseItem>(items1[0]);
+
+    /** Get Spatial item of the query frame **/
+    std::vector<envire::core::ItemBase::Ptr> items2 = this->_transform_graph.getItems(query_frame);
+    envire::sam::PoseItem::Ptr pose_item2 = boost::static_pointer_cast<envire::sam::PoseItem>(items2[0]);
+
+    /** Check intersection **/
+    return pose_item1->contains(pose_item2->getData().translation);
+}
+
+void ESAM::containsFrames (const gtsam::Symbol &container_frame_id)
+{
+    for(register unsigned int i=0; i<this->pose_idx+1; ++i)
+    {
+        gtsam::Symbol target_frame_id = gtsam::Symbol(this->pose_key, i);
+        if (target_frame_id != container_frame_id)
+        {
+            std::cout<<"TARGET FRAME ID: "; target_frame_id.print();
+
+            if (this->contains(container_frame_id, target_frame_id))
+            {
+                std::cout<<"INTERSECTION FOUND!\n";
+            }
+            else
+            {
+                std::cout<<"NO FOUND!\n";
+            }
+        }
+    }
 }
 
 void ESAM::printFactorGraph(const std::string &title)
@@ -791,7 +927,6 @@ void ESAM::radiusOutlierRemoval(PCLPointCloud::Ptr &points, const double &radius
     std::cout<<"radius: "<< radius<<"\n";
     std::cout<<"min_neighbors: "<< min_neighbors<<"\n";
     #endif
-    PCLPointCloud filtered_cloud;
     ror.setInputCloud(points);
     ror.filter (*outliersampled_out);
 }

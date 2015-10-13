@@ -205,7 +205,19 @@ namespace envire { namespace sam
 
         void mergePointClouds(base::samples::Pointcloud &base_point_cloud, bool downsample = false);
 
-        void computeAlignedBoundingBox(const ::base::Pose &delta_pose, const ::base::Matrix3d &delta_cov);
+        void currentPointCloud(base::samples::Pointcloud &base_point_cloud, bool downsample = false);
+
+        void currentPointCloudtoPLY(const std::string &prefixname, bool downsample = false);
+
+        void computeAlignedBoundingBox();
+
+        void detectLandmarks();
+
+        bool intersects(const gtsam::Symbol &frame1, const gtsam::Symbol &frame2);
+
+        bool contains(const gtsam::Symbol &container_frame, const gtsam::Symbol &query_frame);
+
+        void containsFrames (const gtsam::Symbol &container_frame_id);
 
         void printMarginals();
 
