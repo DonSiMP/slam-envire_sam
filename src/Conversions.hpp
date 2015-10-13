@@ -72,11 +72,8 @@ namespace envire { namespace sam
                     uint32_t rgb = ((uint32_t)r << 16 | (uint32_t)g << 8 | (uint32_t)b);
                     pcl_point.rgb = *reinterpret_cast<float*>(&rgb);
 
-                    if (rgb > 0.00)
-                    {
-                        /** Point info **/
-                        pcl_pc.push_back(pcl_point);
-                    }
+                    /** Point info **/
+                    pcl_pc.push_back(pcl_point);
                 }
             }
         }

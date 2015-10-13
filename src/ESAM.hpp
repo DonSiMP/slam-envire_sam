@@ -54,7 +54,8 @@
 #include <pcl/point_types.h>
 #include <pcl/point_cloud.h>
 #include <pcl/filters/voxel_grid.h>
-#include <pcl/filters/fast_bilateral_omp.h>
+#include <pcl/keypoints/uniform_sampling.h>
+#include <pcl/filters/fast_bilateral.h>
 #include <pcl/filters/radius_outlier_removal.h>
 #include <pcl/filters/statistical_outlier_removal.h>
 #include <pcl/features/normal_3d.h>
@@ -232,6 +233,10 @@ namespace envire { namespace sam
     protected:
 
         void downsample (PCLPointCloud::Ptr &points, float leaf_size, PCLPointCloud::Ptr &downsampled_out);
+
+        void uniformsample (PCLPointCloud::Ptr &points, float leaf_size, PCLPointCloud::Ptr &uniformsampled_out);
+
+        void removePointsWithoutColor (const PCLPointCloud::Ptr &points, PCLPointCloud::Ptr &points_out);
 
         void bilateralFilter(const PCLPointCloud::Ptr &points, const double &spatial_width, const double &range_sigma , PCLPointCloud::Ptr &filtered_out);
 
