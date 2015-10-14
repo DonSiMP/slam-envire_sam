@@ -61,6 +61,8 @@
 #include <pcl/features/normal_3d.h>
 #include <pcl/kdtree/kdtree_flann.h>
 #include <pcl/features/pfh.h>
+#include <pcl/features/fpfh.h>
+#include <pcl/features/pfhrgb.h>
 #include <pcl/keypoints/sift_keypoint.h>
 
 /** Envire SAM **/
@@ -77,7 +79,8 @@ namespace envire { namespace sam
     /** Transform Graph types **/
     typedef envire::core::SpatialItem<base::TransformWithCovariance> PoseItem;
     typedef envire::core::Item<PCLPointCloud> PointCloudItem;
-    typedef envire::core::Item< pcl::PointCloud<pcl::PFHSignature125> > DescriptorsItem;
+    typedef envire::core::Item< pcl::PointCloud<pcl::PFHSignature125> > PFHDescriptorItem;
+    typedef envire::core::Item< pcl::PointCloud<pcl::FPFHSignature33> > FPFHDescriptorItem;
 
     /**
      * A class to perform SAM using PCL and Envire
@@ -90,6 +93,9 @@ namespace envire { namespace sam
         //EIGEN_DONT_VECTORIZE //That disables all 128-bit alignment code, and in particular everything vectorization-related
 
     private:
+
+        /** Invalid key symbol **/
+        const gtsam::Symbol invalid_symbol = gtsam::Symbol('u', -1);
 
         /** Keys to identify poses and landmarks **/
         char pose_key, landmark_key;
@@ -120,6 +126,12 @@ namespace envire { namespace sam
         /** Keypoint parameters **/
         SIFTKeypointParams keypoint_parameters;
 
+        /** Feature parameters **/
+        PFHFeatureParams feature_parameters;
+
+        /** Downsampling factor **/
+        float downsample_size;
+
     public:
 
         /** Constructors
@@ -134,21 +146,27 @@ namespace envire { namespace sam
 
         ESAM(const ::base::TransformWithCovariance &pose_with_cov,
                 const char pose_key, const char landmark_key,
+                const float downsample_size,
                 const BilateralFilterParams &bfilter,
                 const OutlierRemovalParams &outliers,
-                const SIFTKeypointParams &keypoint);
+                const SIFTKeypointParams &keypoint,
+                const PFHFeatureParams &feature);
 
         ESAM(const ::base::Pose &pose, const ::base::Matrix6d &cov_pose,
                 const char pose_key, const char landmark_key,
+                const float downsample_size,
                 const BilateralFilterParams &bfilter,
                 const OutlierRemovalParams &outliers,
-                const SIFTKeypointParams &keypoint);
+                const SIFTKeypointParams &keypoint,
+                const PFHFeatureParams &feature);
 
         ESAM(const ::base::Pose &pose, const ::base::Vector6d &var_pose, 
                 const char pose_key, const char landmark_key,
+                const float downsample_size,
                 const BilateralFilterParams &bfilter,
                 const OutlierRemovalParams &outliers,
-                const SIFTKeypointParams &keypoint);
+                const SIFTKeypointParams &keypoint,
+                const PFHFeatureParams &feature);
 
         ~ESAM();
 
@@ -192,7 +210,7 @@ namespace envire { namespace sam
 
         void pushPointCloud(const ::base::samples::Pointcloud &base_point_cloud, const int height, const int width);
 
-        void keypointsPointCloud();
+        void keypointsPointCloud(const gtsam::Symbol &frame_id, const float normal_radius, const float feature_radius);
 
         void transformPointCloud(const ::base::samples::Pointcloud & pc, ::base::samples::Pointcloud & transformed_pc, const Eigen::Affine3d& transformation);
 
@@ -210,7 +228,7 @@ namespace envire { namespace sam
 
         void currentPointCloudtoPLY(const std::string &prefixname, bool downsample = false);
 
-        void computeAlignedBoundingBox();
+        gtsam::Symbol computeAlignedBoundingBox();
 
         void detectLandmarks();
 
@@ -252,6 +270,7 @@ namespace envire { namespace sam
                       pcl::PointCloud<pcl::Normal>::Ptr &normals,
                       float feature_radius,
                       pcl::PointCloud<pcl::PFHSignature125>::Ptr &descriptors_out);
+
         void detectKeypoints (PCLPointCloud::Ptr &points,
               float min_scale, int nr_octaves, int nr_scales_per_octave, float min_contrast,
               pcl::PointCloud<pcl::PointWithScale>::Ptr &keypoints_out);
@@ -260,6 +279,11 @@ namespace envire { namespace sam
                            pcl::PointCloud<pcl::Normal>::Ptr &normals,
                            pcl::PointCloud<pcl::PointWithScale>::Ptr &keypoints, float feature_radius,
                            pcl::PointCloud<pcl::PFHSignature125>::Ptr &descriptors_out);
+
+        void computeFPFHFeaturesAtKeypoints (pcl::PointCloud<PointType>::Ptr &points,
+                           pcl::PointCloud<pcl::Normal>::Ptr &normals,
+                           pcl::PointCloud<pcl::PointWithScale>::Ptr &keypoints, float feature_radius,
+                           pcl::PointCloud<pcl::FPFHSignature33>::Ptr &descriptors_out);
 
         void findFeatureCorrespondences (pcl::PointCloud<pcl::PFHSignature125>::Ptr &source_descriptors,
                       pcl::PointCloud<pcl::PFHSignature125>::Ptr &target_descriptors,

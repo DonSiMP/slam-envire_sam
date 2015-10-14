@@ -46,6 +46,12 @@ namespace envire { namespace sam
         float min_contrast;
     };
 
+    struct PFHFeatureParams
+    {
+        float normal_radius;
+        float feature_radius;
+    };
+
 }}
 
 #endif

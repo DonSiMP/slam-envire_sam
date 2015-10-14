@@ -38,7 +38,14 @@ ESAM::ESAM(const ::base::Pose &pose, const ::base::Vector6d &var_pose,
     keypoint_default.nr_octaves_per_scale = 3;
     keypoint_default.min_contrast = 10.0;
 
-    ESAM(pose, var_pose, pose_key, landmark_key, bfilter_default, outlier_default, keypoint_default);
+    PFHFeatureParams feature_default;
+    feature_default.normal_radius = 0.1;
+    feature_default.feature_radius = 1.0;
+
+    float default_downsample = 0.01;
+
+    ESAM(pose, var_pose, pose_key, landmark_key, default_downsample,
+            bfilter_default, outlier_default, keypoint_default, feature_default);
 }
 
 ESAM::ESAM(const ::base::Pose &pose, const ::base::Matrix6d &cov_pose,
@@ -52,14 +59,23 @@ ESAM::ESAM(const ::base::Pose &pose, const ::base::Matrix6d &cov_pose,
     keypoint_default.nr_octaves_per_scale = 3;
     keypoint_default.min_contrast = 10.0;
 
-    ESAM(pose, cov_pose, pose_key, landmark_key, bfilter_default, outlier_default, keypoint_default);
+    PFHFeatureParams feature_default;
+    feature_default.normal_radius = 0.1;
+    feature_default.feature_radius = 1.0;
+
+    float default_downsample = 0.01;
+
+    ESAM(pose, cov_pose, pose_key, landmark_key, default_downsample, bfilter_default,
+            outlier_default, keypoint_default, feature_default);
 }
 
 ESAM::ESAM(const ::base::TransformWithCovariance &pose_with_cov,
         const char pose_key, const char landmark_key,
+        const float downsample_size,
         const BilateralFilterParams &bfilter,
         const OutlierRemovalParams &outliers,
-        const SIFTKeypointParams &keypoint)
+        const SIFTKeypointParams &keypoint,
+        const PFHFeatureParams &feature)
 {
     gtsam::Pose3 pose_0(gtsam::Rot3(pose_with_cov.orientation), gtsam::Point3(pose_with_cov.translation));
     gtsam::Matrix cov_matrix = pose_with_cov.cov;
@@ -81,6 +97,13 @@ ESAM::ESAM(const ::base::TransformWithCovariance &pose_with_cov,
     /** Filter and outlier parameters **/
     this->bfilter_paramaters = bfilter;
     this->outlier_paramaters = outliers;
+    this->keypoint_parameters = keypoint;
+
+    /** Feature parameters **/
+    this->feature_parameters = feature;
+
+    /** Downsample size **/
+    this->downsample_size = downsample_size;
 
     // Add a prior on pose x0. This indirectly specifies where the origin is.
     this->_factor_graph.add(gtsam::PriorFactor<gtsam::Pose3>(gtsam::Symbol(this->pose_key, this->pose_idx), pose_0, cov_pose_0)); // add directly to graph
@@ -88,9 +111,11 @@ ESAM::ESAM(const ::base::TransformWithCovariance &pose_with_cov,
 }
 ESAM::ESAM(const ::base::Pose &pose, const ::base::Matrix6d &cov_pose,
         const char pose_key, const char landmark_key,
+        const float downsample_size,
         const BilateralFilterParams &bfilter,
         const OutlierRemovalParams &outliers,
-        const SIFTKeypointParams &keypoint)
+        const SIFTKeypointParams &keypoint,
+        const PFHFeatureParams &feature)
 {
 
     gtsam::Pose3 pose_0(gtsam::Rot3(pose.orientation), gtsam::Point3(pose.position));
@@ -113,6 +138,13 @@ ESAM::ESAM(const ::base::Pose &pose, const ::base::Matrix6d &cov_pose,
     /** Filter and outlier parameters **/
     this->bfilter_paramaters = bfilter;
     this->outlier_paramaters = outliers;
+    this->keypoint_parameters = keypoint;
+
+    /** Feature parameters **/
+    this->feature_parameters = feature;
+
+    /** Downsample size **/
+    this->downsample_size = downsample_size;
 
     // Add a prior on pose x0. This indirectly specifies where the origin is.
     this->_factor_graph.add(gtsam::PriorFactor<gtsam::Pose3>(gtsam::Symbol(this->pose_key, this->pose_idx), pose_0, cov_pose_0)); // add directly to graph
@@ -120,9 +152,11 @@ ESAM::ESAM(const ::base::Pose &pose, const ::base::Matrix6d &cov_pose,
 
 ESAM::ESAM(const ::base::Pose &pose, const ::base::Vector6d &var_pose,
         const char pose_key, const char landmark_key,
+        const float downsample_size,
         const BilateralFilterParams &bfilter,
         const OutlierRemovalParams &outliers,
-        const SIFTKeypointParams &keypoint)
+        const SIFTKeypointParams &keypoint,
+        const PFHFeatureParams &feature)
 {
     gtsam::Pose3 pose_0(gtsam::Rot3(pose.orientation), gtsam::Point3(pose.position));
     gtsam::Vector variances = var_pose;
@@ -143,6 +177,13 @@ ESAM::ESAM(const ::base::Pose &pose, const ::base::Vector6d &var_pose,
     /** Filter and outlier parameters **/
     this->bfilter_paramaters = bfilter;
     this->outlier_paramaters = outliers;
+    this->keypoint_parameters = keypoint;
+
+    /** Feature parameters **/
+    this->feature_parameters = feature;
+
+    /** Downsample size **/
+    this->downsample_size = downsample_size;
 
     // Add a prior on pose x0. This indirectly specifies where the origin is.
     this->_factor_graph.add(gtsam::PriorFactor<gtsam::Pose3>(gtsam::Symbol(this->pose_key, this->pose_idx), pose_0, cov_pose_0)); // add directly to graph
@@ -432,12 +473,18 @@ void ESAM::mergePointClouds(PCLPointCloud &merged_point_cloud, bool downsample)
     for(register unsigned int i=0; i<this->pose_idx+1; ++i)
     {
         gtsam::Symbol frame_id(this->pose_key, i);
+        std::cout<<"MERGING POINT CLOUDS: ";
         frame_id.print();
-        PCLPointCloud local_points = this->getPointCloud(frame_id);
-        base::TransformWithCovariance tf_cov = this->getTransformPose(frame_id);
-        this->transformPointCloud(local_points, tf_cov.getTransform());
-        merged_point_cloud += local_points;
-        std::cout<<"local_points.size(); "<<local_points.size()<<"\n";
+        size_t number_items = this->_transform_graph.getItems(frame_id).size();
+
+        if (number_items > 1)
+        {
+            PCLPointCloud local_points = this->getPointCloud(frame_id);
+            base::TransformWithCovariance tf_cov = this->getTransformPose(frame_id);
+            this->transformPointCloud(local_points, tf_cov.getTransform());
+            merged_point_cloud += local_points;
+            std::cout<<"local_points.size(); "<<local_points.size()<<"\n";
+        }
     }
 
     /** Downsample **/
@@ -445,7 +492,7 @@ void ESAM::mergePointClouds(PCLPointCloud &merged_point_cloud, bool downsample)
     {
         PCLPointCloudPtr merged_point_cloud_ptr = boost::make_shared<PCLPointCloud>(merged_point_cloud);
         PCLPointCloudPtr downsample_point_cloud (new PCLPointCloud);
-        this->downsample (merged_point_cloud_ptr, 0.01, downsample_point_cloud);
+        this->downsample (merged_point_cloud_ptr, this->downsample_size, downsample_point_cloud);
 
         merged_point_cloud = *downsample_point_cloud;
     }
@@ -467,41 +514,59 @@ void ESAM::currentPointCloud(base::samples::Pointcloud &base_point_cloud, bool d
 {
     /** Get the current point cloud **/
     gtsam::Symbol frame_id = gtsam::Symbol(this->pose_key, this->pose_idx-1);
-    PCLPointCloud current_point_cloud = this->getPointCloud(frame_id);
 
-    /** Downsample **/
-    if (downsample)
-    {
-        PCLPointCloudPtr current_point_cloud_ptr = boost::make_shared<PCLPointCloud>(current_point_cloud);
-        PCLPointCloudPtr downsample_point_cloud (new PCLPointCloud);
-        this->downsample (current_point_cloud_ptr, 0.01, downsample_point_cloud);
-        current_point_cloud = *downsample_point_cloud;
-    }
-
-    /** Convert to base point cloud **/
+    /* Clear point cloud **/
     base_point_cloud.points.clear();
     base_point_cloud.colors.clear();
-    envire::sam::fromPCLPointCloud<PointType>(base_point_cloud, current_point_cloud);
+
+    /** Get the number of items **/
+    size_t number_items = this->_transform_graph.getItems(frame_id).size();
+
+    if (number_items > 1)
+    {
+        PCLPointCloud current_point_cloud = this->getPointCloud(frame_id);
+
+        /** Downsample **/
+        if (downsample)
+        {
+            PCLPointCloudPtr current_point_cloud_ptr = boost::make_shared<PCLPointCloud>(current_point_cloud);
+            PCLPointCloudPtr downsample_point_cloud (new PCLPointCloud);
+            this->downsample (current_point_cloud_ptr, this->downsample_size, downsample_point_cloud);
+            current_point_cloud = *downsample_point_cloud;
+        }
+
+        /** Convert to base point cloud **/
+        envire::sam::fromPCLPointCloud<PointType>(base_point_cloud, current_point_cloud);
+    }
 }
 
 void ESAM::currentPointCloudtoPLY(const std::string &prefixname, bool downsample)
 {
+    base::samples::Pointcloud base_point_cloud;
+
     /** Get the current point cloud **/
     gtsam::Symbol frame_id = gtsam::Symbol(this->pose_key, this->pose_idx-1);
-    PCLPointCloud current_point_cloud = this->getPointCloud(frame_id);
 
-    /** Downsample **/
-    if (downsample)
+    /** Get the number of items **/
+    size_t number_items = this->_transform_graph.getItems(frame_id).size();
+
+    if (number_items > 1)
     {
-        PCLPointCloudPtr current_point_cloud_ptr = boost::make_shared<PCLPointCloud>(current_point_cloud);
-        PCLPointCloudPtr downsample_point_cloud (new PCLPointCloud);
-        this->downsample (current_point_cloud_ptr, 0.01, downsample_point_cloud);
-        current_point_cloud = *downsample_point_cloud;
-    }
 
-    /** Convert to base point cloud **/
-    base::samples::Pointcloud base_point_cloud;
-    envire::sam::fromPCLPointCloud<PointType>(base_point_cloud, current_point_cloud);
+        PCLPointCloud current_point_cloud = this->getPointCloud(frame_id);
+
+        /** Downsample **/
+        if (downsample)
+        {
+            PCLPointCloudPtr current_point_cloud_ptr = boost::make_shared<PCLPointCloud>(current_point_cloud);
+            PCLPointCloudPtr downsample_point_cloud (new PCLPointCloud);
+            this->downsample (current_point_cloud_ptr, this->downsample_size, downsample_point_cloud);
+            current_point_cloud = *downsample_point_cloud;
+        }
+
+        /** Convert to base point cloud **/
+        envire::sam::fromPCLPointCloud<PointType>(base_point_cloud, current_point_cloud);
+    }
 
     /** Write to PLY **/
     std::string filename; filename = prefixname + static_cast<std::string>(frame_id) + ".ply";
@@ -576,9 +641,8 @@ void ESAM::pushPointCloud(const ::base::samples::Pointcloud &base_point_cloud, c
     #endif
 
     /** Downsample, lost the organized point cloud **/
-    const float voxel_grid_leaf_size = 0.01;
     PCLPointCloudPtr downsample_point_cloud (new PCLPointCloud);
-    this->downsample (radius_point_cloud, voxel_grid_leaf_size, downsample_point_cloud);
+    this->downsample (radius_point_cloud, this->downsample_size, downsample_point_cloud);
 
     radius_point_cloud.reset();
 
@@ -638,7 +702,7 @@ void ESAM::pushPointCloud(const ::base::samples::Pointcloud &base_point_cloud, c
         /** Downsample the union **/
         PCLPointCloudPtr point_cloud_in_node = boost::make_shared<PCLPointCloud>(point_cloud_item->getData());
         PCLPointCloudPtr downsample_point_cloud (new PCLPointCloud);
-        this->uniformsample(point_cloud_in_node, 0.02, downsample_point_cloud);
+        this->uniformsample(point_cloud_in_node, 2.0 * this->downsample_size, downsample_point_cloud);
         point_cloud_item->setData(*downsample_point_cloud.get());
 
         #ifdef DEBUG_PRINTS
@@ -668,10 +732,9 @@ void ESAM::pushPointCloud(const ::base::samples::Pointcloud &base_point_cloud, c
     return;
 }
 
-void ESAM::keypointsPointCloud()
+void ESAM::keypointsPointCloud(const gtsam::Symbol &frame_id, const float normal_radius, const float feature_radius)
 {
-    /** Get current point cloud in the node **/
-    gtsam::Symbol frame_id = gtsam::Symbol(this->pose_key, this->pose_idx);
+    /** Get the point cloud in the node **/
     std::vector<envire::core::ItemBase::Ptr> items = this->_transform_graph.getItems(frame_id);
     envire::sam::PointCloudItem::Ptr point_cloud_item = boost::static_pointer_cast<envire::sam::PointCloudItem>(items[1]);
     PCLPointCloudPtr point_cloud_ptr = boost::make_shared<PCLPointCloud>(point_cloud_item->getData());
@@ -680,10 +743,18 @@ void ESAM::keypointsPointCloud()
     frame_id.print();
     std::cout<<" with "<<items.size()<<" items\n";
 
+    /** Downsample **/
+    PCLPointCloudPtr downsample_point_cloud (new PCLPointCloud);
+    this->downsample (point_cloud_ptr, 5.0 * this->downsample_size, downsample_point_cloud);
+
+    #ifdef DEBUG_PRINTS
+    std::cout<<"DOWNSAMPLE SIZE: "<< 5.0 * this->downsample_size <<"\n";
+    std::cout<<"NORMAL RADIUS: "<< normal_radius <<"\n";
+    #endif
+
     /**  Compute surface normals **/
-    const float normal_radius = 0.03;
     pcl::PointCloud<pcl::Normal>::Ptr normals (new pcl::PointCloud<pcl::Normal>);
-    this->computeNormals (point_cloud_ptr, normal_radius, normals);
+    this->computeNormals (downsample_point_cloud, normal_radius, normals);
 
     /** Compute keypoints **/
     pcl::PointCloud<pcl::PointWithScale>::Ptr keypoints (new pcl::PointCloud<pcl::PointWithScale>);
@@ -697,27 +768,26 @@ void ESAM::keypointsPointCloud()
     #endif
 
     /**  Compute PFH features **/
-    const float feature_radius = 0.08;
-    pcl::PointCloud<pcl::PFHSignature125>::Ptr descriptors (new pcl::PointCloud<pcl::PFHSignature125>);
-    this->computePFHFeaturesAtKeypoints (point_cloud_ptr, normals, keypoints, feature_radius, descriptors);
+    pcl::PointCloud<pcl::FPFHSignature33>::Ptr descriptors (new pcl::PointCloud<pcl::FPFHSignature33>);
+    this->computeFPFHFeaturesAtKeypoints (downsample_point_cloud, normals, keypoints, feature_radius, descriptors);
 
     #ifdef DEBUG_PRINTS
     std::cout<<"DETECTED "<<descriptors->size()<<"FEATURE DESCRIPTORS\n";
     #endif
 
     /** Store the features descriptors in the envire node **/
-    envire::sam::DescriptorsItem::Ptr descriptors_item (new DescriptorsItem);
+    envire::sam::FPFHDescriptorItem::Ptr descriptors_item (new FPFHDescriptorItem);
     descriptors_item->setData(*descriptors);
     this->_transform_graph.addItemToFrame(frame_id, descriptors_item);
 
     return;
 }
 
-void ESAM::computeAlignedBoundingBox()
+gtsam::Symbol ESAM::computeAlignedBoundingBox()
 {
     /** Check that there is more than one frame **/
     if (this->pose_idx ==0)
-        return;
+        return this->invalid_symbol;
 
     /** Get the previous frame pose **/
     gtsam::Symbol prev_frame_id = gtsam::Symbol(this->pose_key, this->pose_idx-1);
@@ -734,7 +804,7 @@ void ESAM::computeAlignedBoundingBox()
     /** Computer standard deviation **/
     Eigen::Vector3d std_prev_pose = prev_pose->cov.block<3,3>(0,0).diagonal().array().sqrt();
     Eigen::Vector3d std_current_pose = current_pose->cov.block<3,3>(0,0).diagonal().array().sqrt();
-    std_prev_pose[2] = 0.5; std_current_pose[2] = 0.5;
+    std_prev_pose[2] = 1.5; std_current_pose[2] = 1.5;
 
     /** Compute Bounding box limits in the global frame **/
     Eigen::Vector3d front_limit(current_pose->translation);
@@ -762,23 +832,35 @@ void ESAM::computeAlignedBoundingBox()
     std::cout<<"REAR BOUNDING LIMITS:\n"<<rear_limit<<"\n";
     std::cout<<"CENTER:\n"<<prev_pose_item->centerOfBoundary()<<"\n";
 
-    return;
+    return prev_frame_id;
 }
 
 void ESAM::detectLandmarks()
 {
-    /** Compute aligned bounding box for previous frame using the current frame **/
+    /** Compute aligned bounding box from the previous to the current frame **/
     std::cout<<"COMPUTE BOUNDING BOX\n";
-    this->computeAlignedBoundingBox();
+    gtsam::Symbol frame_id = this->computeAlignedBoundingBox();
 
-    /** Find next frame intersections **/
-    gtsam::Symbol container_frame_id = gtsam::Symbol(this->pose_key, this->pose_idx-1);
-    std::cout<<"CONTAINER FRAME ID: "; container_frame_id.print();
-    this->containsFrames(container_frame_id);
+    /** Get the number of items **/
+    size_t number_items = this->_transform_graph.getItems(frame_id).size();
 
-    /** Features Correspondences **/
+    /** Compute the keypoints in case of valid frame and it has point cloud **/
+    if (frame_id != this->invalid_symbol && number_items > 1)
+    {
 
-    /** Landmarks to Factor graph **/
+        /** Compute the keypoints and features of the frame **/
+        std::cout<<"KEYPOINTS AND FEATURES DESCRIPTORS\n";
+        this->keypointsPointCloud(frame_id, this->feature_parameters.normal_radius, this->feature_parameters.feature_radius);
+
+        /** Find next frame intersections **/
+        std::cout<<"CONTAINER FRAME ID: "; frame_id.print();
+        this->containsFrames(frame_id);
+
+        /** Features Correspondences **/
+        //this->featuresCorrespondences();
+
+        /** Landmarks to Factor graph **/
+    }
 
     return;
 }
@@ -808,7 +890,8 @@ bool ESAM::contains(const gtsam::Symbol &container_frame, const gtsam::Symbol &q
     envire::sam::PoseItem::Ptr pose_item2 = boost::static_pointer_cast<envire::sam::PoseItem>(items2[0]);
 
     /** Check intersection **/
-    return pose_item1->contains(pose_item2->getData().translation);
+    return (pose_item1->contains(pose_item2->getData().translation) ||
+            pose_item1->contains(pose_item2->centerOfBoundary()));
 }
 
 void ESAM::containsFrames (const gtsam::Symbol &container_frame_id)
@@ -1104,6 +1187,43 @@ void ESAM::computePFHFeaturesAtKeypoints (PCLPointCloud::Ptr &points,
 
     // Compute the features
     pfh_est.compute (*descriptors_out);
+
+    return;
+}
+
+void ESAM::computeFPFHFeaturesAtKeypoints (PCLPointCloud::Ptr &points,
+                           pcl::PointCloud<pcl::Normal>::Ptr &normals,
+                           pcl::PointCloud<pcl::PointWithScale>::Ptr &keypoints, float feature_radius,
+                           pcl::PointCloud<pcl::FPFHSignature33>::Ptr &descriptors_out)
+{
+    // Create a FPFHEstimation object
+    pcl::FPFHEstimation<PointType, pcl::Normal, pcl::FPFHSignature33> fpfh_est;
+
+    // Set it to use a FLANN-based KdTree to perform its neighborhood searches
+    fpfh_est.setSearchMethod (pcl::search::KdTree<PointType>::Ptr (new pcl::search::KdTree<PointType>));
+
+    // Specify the radius of the PFH feature
+    fpfh_est.setRadiusSearch (feature_radius);
+
+    /* This is a little bit messy: since our keypoint detection returns PointWithScale points, but we want to
+    * use them as an input to our PFH estimation, which expects clouds of PointXYZRGBA points.  To get around this,
+    * we'll use copyPointCloud to convert "keypoints" (a cloud of type PointCloud<PointWithScale>) to
+    * "keypoints_xyzrgb" (a cloud of type PointCloud<PointXYZRGBA>).  Note that the original cloud doesn't have any RGB
+    * values, so when we copy from PointWithScale to PointXYZRGBA, the new r,g,b fields will all be zero.
+    */
+
+    PCLPointCloud::Ptr keypoints_xyzrgb (new PCLPointCloud);
+    pcl::copyPointCloud (*keypoints, *keypoints_xyzrgb);
+
+    // Use all of the points for analyzing the local structure of the cloud
+    fpfh_est.setSearchSurface (points);
+    fpfh_est.setInputNormals (normals);
+
+    // But only compute features at the keypoints
+    fpfh_est.setInputCloud (keypoints_xyzrgb);
+
+    // Compute the features
+    fpfh_est.compute (*descriptors_out);
 
     return;
 }
