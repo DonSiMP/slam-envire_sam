@@ -236,6 +236,13 @@ void ESAM::insertFactor(const char key1, const unsigned long int &idx1,
 
 }
 
+void ESAM::addDeltaPoseFactor(const base::Time &time, const ::Eigen::Affine3d &delta_tf, const ::base::Vector6d &var_delta_tf)
+{
+    ::base::Pose delta_pose(delta_tf);
+    this->pose_idx++;
+    return this->insertFactor(this->pose_key, this->pose_idx-1, this->pose_key, this->pose_idx, time, delta_pose, var_delta_tf);
+}
+
 void ESAM::addDeltaPoseFactor(const base::Time &time, const ::base::TransformWithCovariance &delta_pose_with_cov)
 {
     ::base::Pose delta_pose(delta_pose_with_cov.translation, delta_pose_with_cov.orientation);
@@ -473,8 +480,8 @@ void ESAM::mergePointClouds(PCLPointCloud &merged_point_cloud, bool downsample)
     for(register unsigned int i=0; i<this->pose_idx+1; ++i)
     {
         gtsam::Symbol frame_id(this->pose_key, i);
-        std::cout<<"MERGING POINT CLOUDS: ";
-        frame_id.print();
+        //std::cout<<"MERGING POINT CLOUDS: ";
+        //frame_id.print();
         size_t number_items = this->_transform_graph.getItems(frame_id).size();
 
         if (number_items > 1)
@@ -483,7 +490,7 @@ void ESAM::mergePointClouds(PCLPointCloud &merged_point_cloud, bool downsample)
             base::TransformWithCovariance tf_cov = this->getTransformPose(frame_id);
             this->transformPointCloud(local_points, tf_cov.getTransform());
             merged_point_cloud += local_points;
-            std::cout<<"local_points.size(); "<<local_points.size()<<"\n";
+            //std::cout<<"local_points.size(); "<<local_points.size()<<"\n";
         }
     }
 
@@ -503,11 +510,11 @@ void ESAM::mergePointClouds(base::samples::Pointcloud &base_point_cloud, bool do
     PCLPointCloud pcl_point_cloud;
     this->mergePointClouds(pcl_point_cloud, downsample);
 
-    std::cout<<"merged_points.size(); "<<pcl_point_cloud.size()<<"\n";
+    //std::cout<<"merged_points.size(); "<<pcl_point_cloud.size()<<"\n";
     base_point_cloud.points.clear();
     base_point_cloud.colors.clear();
     envire::sam::fromPCLPointCloud<PointType>(base_point_cloud, pcl_point_cloud);
-    std::cout<<"base merged point cloud.size(); "<<base_point_cloud.points.size()<<"\n";
+    //std::cout<<"base merged point cloud.size(); "<<base_point_cloud.points.size()<<"\n";
 }
 
 void ESAM::currentPointCloud(base::samples::Pointcloud &base_point_cloud, bool downsample)
