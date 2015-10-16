@@ -105,6 +105,10 @@ ESAM::ESAM(const ::base::TransformWithCovariance &pose_with_cov,
     /** Downsample size **/
     this->downsample_size = downsample_size;
 
+    /** Invalid frame symbol to search for landmarks **/
+    this->candidate_to_search_landmarks = this->invalid_symbol;
+    this->frame_to_search_landmarks = this->invalid_symbol;
+
     // Add a prior on pose x0. This indirectly specifies where the origin is.
     this->_factor_graph.add(gtsam::PriorFactor<gtsam::Pose3>(gtsam::Symbol(this->pose_key, this->pose_idx), pose_0, cov_pose_0)); // add directly to graph
 
@@ -146,6 +150,10 @@ ESAM::ESAM(const ::base::Pose &pose, const ::base::Matrix6d &cov_pose,
     /** Downsample size **/
     this->downsample_size = downsample_size;
 
+    /** Invalid frame symbol to search for landmarks **/
+    this->candidate_to_search_landmarks = this->invalid_symbol;
+    this->frame_to_search_landmarks = this->invalid_symbol;
+
     // Add a prior on pose x0. This indirectly specifies where the origin is.
     this->_factor_graph.add(gtsam::PriorFactor<gtsam::Pose3>(gtsam::Symbol(this->pose_key, this->pose_idx), pose_0, cov_pose_0)); // add directly to graph
 }
@@ -184,6 +192,10 @@ ESAM::ESAM(const ::base::Pose &pose, const ::base::Vector6d &var_pose,
 
     /** Downsample size **/
     this->downsample_size = downsample_size;
+
+    /** Invalid frame symbol to search for landmarks **/
+    this->candidate_to_search_landmarks = this->invalid_symbol;
+    this->frame_to_search_landmarks = this->invalid_symbol;
 
     // Add a prior on pose x0. This indirectly specifies where the origin is.
     this->_factor_graph.add(gtsam::PriorFactor<gtsam::Pose3>(gtsam::Symbol(this->pose_key, this->pose_idx), pose_0, cov_pose_0)); // add directly to graph
@@ -739,7 +751,7 @@ void ESAM::pushPointCloud(const ::base::samples::Pointcloud &base_point_cloud, c
     return;
 }
 
-void ESAM::keypointsPointCloud(const gtsam::Symbol &frame_id, const float normal_radius, const float feature_radius)
+int ESAM::keypointsPointCloud(const gtsam::Symbol &frame_id, const float normal_radius, const float feature_radius)
 {
     /** Get the point cloud in the node **/
     std::vector<envire::core::ItemBase::Ptr> items = this->_transform_graph.getItems(frame_id);
@@ -770,24 +782,38 @@ void ESAM::keypointsPointCloud(const gtsam::Symbol &frame_id, const float normal
             keypoint_parameters.min_contrast, keypoints);
 
     #ifdef DEBUG_PRINTS
-    std::cout<<"DETECTED "<<keypoints->size()<<"KEYPOINTS\n";
+    std::cout<<"DETECTED "<<keypoints->size()<<" KEYPOINTS\n";
     this->printKeypoints(keypoints);
     #endif
 
     /**  Compute PFH features **/
     pcl::PointCloud<pcl::FPFHSignature33>::Ptr descriptors (new pcl::PointCloud<pcl::FPFHSignature33>);
-    this->computeFPFHFeaturesAtKeypoints (downsample_point_cloud, normals, keypoints, feature_radius, descriptors);
+    if (keypoints->size() > 0)
+    {
+        /** Store the keypoints in the envire node **/
+        envire::sam::KeypointItem::Ptr keypoints_item (new KeypointItem);
+        keypoints_item->setData(*keypoints);
+        this->_transform_graph.addItemToFrame(frame_id, keypoints_item);
 
-    #ifdef DEBUG_PRINTS
-    std::cout<<"DETECTED "<<descriptors->size()<<"FEATURE DESCRIPTORS\n";
-    #endif
+        /** Compute the features descriptors **/
+        this->computeFPFHFeaturesAtKeypoints (downsample_point_cloud, normals, keypoints, feature_radius, descriptors);
 
-    /** Store the features descriptors in the envire node **/
-    envire::sam::FPFHDescriptorItem::Ptr descriptors_item (new FPFHDescriptorItem);
-    descriptors_item->setData(*descriptors);
-    this->_transform_graph.addItemToFrame(frame_id, descriptors_item);
+        #ifdef DEBUG_PRINTS
+        std::cout<<"DETECTED "<<descriptors->size()<<" FEATURE DESCRIPTORS\n";
+        #endif
 
-    return;
+        /** Store the features descriptors in the envire node **/
+        envire::sam::FPFHDescriptorItem::Ptr descriptors_item (new FPFHDescriptorItem);
+        descriptors_item->setData(*descriptors);
+        this->_transform_graph.addItemToFrame(frame_id, descriptors_item);
+
+        items = this->_transform_graph.getItems(frame_id);
+
+        std::cout<<"FRAME: "<<static_cast<std::string>(frame_id)<<" HAS "<<items.size()<<" ELEMENTS\n";
+
+    }
+
+    return keypoints->size();
 }
 
 gtsam::Symbol ESAM::computeAlignedBoundingBox()
@@ -802,6 +828,8 @@ gtsam::Symbol ESAM::computeAlignedBoundingBox()
     envire::sam::PoseItem::Ptr prev_pose_item = boost::static_pointer_cast<envire::sam::PoseItem>(prev_items[0]);
     boost::shared_ptr<base::TransformWithCovariance> prev_pose = boost::make_shared<base::TransformWithCovariance>(prev_pose_item->getData());
 
+    std::cout<<"FOR FRAME "<<static_cast<std::string>(prev_frame_id)<<"\n";
+
     /** Get the current frame pose **/
     gtsam::Symbol current_frame_id = gtsam::Symbol(this->pose_key, this->pose_idx);
     std::vector<envire::core::ItemBase::Ptr> current_items = this->_transform_graph.getItems(current_frame_id);
@@ -811,17 +839,29 @@ gtsam::Symbol ESAM::computeAlignedBoundingBox()
     /** Computer standard deviation **/
     Eigen::Vector3d std_prev_pose = prev_pose->cov.block<3,3>(0,0).diagonal().array().sqrt();
     Eigen::Vector3d std_current_pose = current_pose->cov.block<3,3>(0,0).diagonal().array().sqrt();
-    std_prev_pose[2] = 1.5; std_current_pose[2] = 1.5;
+    std_prev_pose[0] = 0.1; std_current_pose[0] = 0.1;
+    std_prev_pose[1] = 0.25; std_current_pose[1] = 0.25;
+    std_prev_pose[2] = 1.0; std_current_pose[2] = 1.0;
 
     /** Compute Bounding box limits in the global frame **/
     Eigen::Vector3d front_limit(current_pose->translation);
     Eigen::Vector3d rear_limit(prev_pose->translation);
+    std::cout<<"FRONT BOUNDING LIMITS:\n"<<front_limit<<"\n";
+    std::cout<<"REAR BOUNDING LIMITS:\n"<<rear_limit<<"\n";
 
     /** Increase the limits using the standard deviation **/
     for (register int i=0; i<3; ++i)
     {
-        (front_limit[i] > 0) ? (front_limit[i] + std_current_pose[i]) : (front_limit[i] - std_current_pose[i]);
-        (rear_limit[i] > 0) ? (rear_limit[i] + std_prev_pose[i]) : (rear_limit[i] - std_prev_pose[i]);
+        if (front_limit[i] > rear_limit[i])
+        {
+            front_limit[i] += std_current_pose[i];
+            rear_limit[i] -= std_prev_pose[i];
+        }
+        else
+        {
+            front_limit[i] -= std_current_pose[i];
+            rear_limit[i] += std_prev_pose[i];
+        }
     }
 
     /** Set the Bounding box **/
@@ -842,7 +882,7 @@ gtsam::Symbol ESAM::computeAlignedBoundingBox()
     return prev_frame_id;
 }
 
-void ESAM::detectLandmarks()
+void ESAM::computeKeypoints()
 {
     /** Compute aligned bounding box from the previous to the current frame **/
     std::cout<<"COMPUTE BOUNDING BOX\n";
@@ -854,17 +894,37 @@ void ESAM::detectLandmarks()
     /** Compute the keypoints in case of valid frame and it has point cloud **/
     if (frame_id != this->invalid_symbol && number_items > 1)
     {
-
         /** Compute the keypoints and features of the frame **/
         std::cout<<"KEYPOINTS AND FEATURES DESCRIPTORS\n";
         this->keypointsPointCloud(frame_id, this->feature_parameters.normal_radius, this->feature_parameters.feature_radius);
 
+        /** Move the candidates to the frames to search **/
+        this->frames_to_search = this->candidates_to_search;
+        this->frame_to_search_landmarks = this->candidate_to_search_landmarks;
+
         /** Find next frame intersections **/
         std::cout<<"CONTAINER FRAME ID: "; frame_id.print();
-        this->containsFrames(frame_id);
+        this->containsFrames(frame_id, this->candidates_to_search);
 
+        /** Store the frame to search for landmarks in the global variable **/
+        this->candidate_to_search_landmarks = frame_id;
+
+    }
+
+    return;
+}
+
+void ESAM::detectLandmarks()
+{
+    std::cout<<"DETECTING LANDMARKS FOR FRAME: "<<static_cast<std::string>(this->frame_to_search_landmarks)<<"\n";
+    std::cout<<"TO SEARCH IN "<<this->frames_to_search.size()<<" FRAMES\n";
+
+    /** Verify that we can search for the landmarks **/
+    if (this->frames_to_search.size() > 0 &&
+            this->frame_to_search_landmarks != this->invalid_symbol)
+    {
         /** Features Correspondences **/
-        //this->featuresCorrespondences();
+        this->featuresCorrespondences(this->frame_to_search_landmarks, this->frames_to_search);
 
         /** Landmarks to Factor graph **/
     }
@@ -897,12 +957,21 @@ bool ESAM::contains(const gtsam::Symbol &container_frame, const gtsam::Symbol &q
     envire::sam::PoseItem::Ptr pose_item2 = boost::static_pointer_cast<envire::sam::PoseItem>(items2[0]);
 
     /** Check intersection **/
-    return (pose_item1->contains(pose_item2->getData().translation) ||
-            pose_item1->contains(pose_item2->centerOfBoundary()));
+    if (container_frame > query_frame)
+    {
+        return (pose_item1->contains(pose_item2->getData().translation) ||
+                pose_item1->contains(pose_item2->centerOfBoundary()));
+    }
+    else
+    {
+        return (pose_item1->contains(pose_item2->getData().translation));
+    }
 }
 
-void ESAM::containsFrames (const gtsam::Symbol &container_frame_id)
+void ESAM::containsFrames (const gtsam::Symbol &container_frame_id, std::vector<gtsam::Symbol> &frames_to_search)
 {
+    frames_to_search.clear();
+
     for(register unsigned int i=0; i<this->pose_idx+1; ++i)
     {
         gtsam::Symbol target_frame_id = gtsam::Symbol(this->pose_key, i);
@@ -912,7 +981,8 @@ void ESAM::containsFrames (const gtsam::Symbol &container_frame_id)
 
             if (this->contains(container_frame_id, target_frame_id))
             {
-                std::cout<<"INTERSECTION FOUND!\n";
+                std::cout<<"CONTAINS FOUND!\n";
+                frames_to_search.push_back(target_frame_id);
             }
             else
             {
@@ -920,6 +990,98 @@ void ESAM::containsFrames (const gtsam::Symbol &container_frame_id)
             }
         }
     }
+}
+
+void ESAM::featuresCorrespondences(const gtsam::Symbol &frame_id,
+        const std::vector<gtsam::Symbol> &frames_to_search)
+{
+    std::cout<<"CORRESPONDENCE FEATURES\n";
+
+    /** Get the source pose **/
+    std::vector<envire::core::ItemBase::Ptr> source_items = this->_transform_graph.getItems(frame_id);
+    envire::sam::PoseItem::Ptr source_pose = boost::static_pointer_cast<envire::sam::PoseItem>(source_items[0]);
+
+    /** Return in case there is not keypoints and features descriptors **/
+    if (source_items.size() < 4)
+        return;
+
+    /** Get the source keypoints **/
+    envire::sam::KeypointItem::Ptr source_keypoints_item = boost::static_pointer_cast<envire::sam::KeypointItem>(source_items[2]);
+    pcl::PointCloud<pcl::PointWithScale>::Ptr source_keypoints = boost::make_shared< pcl::PointCloud<pcl::PointWithScale> >(source_keypoints_item->getData());
+
+    /** Get the source descriptors **/
+    envire::sam::FPFHDescriptorItem::Ptr source_descriptors_item = boost::static_pointer_cast<envire::sam::FPFHDescriptorItem>(source_items[3]);
+    pcl::PointCloud<pcl::FPFHSignature33>::Ptr source_descriptors = boost::make_shared<pcl::PointCloud<pcl::FPFHSignature33> >(source_descriptors_item->getData());
+
+    std::cout << "SOURCE FRAME " << static_cast<std::string>(frame_id) << " HAS " << source_descriptors->size() <<" DESCRIPTORS\n";
+    std::vector<gtsam::Symbol>::const_iterator it = frames_to_search.begin();
+    for(; it != frames_to_search.end(); ++it)
+    {
+        std::vector<envire::core::ItemBase::Ptr> target_items = this->_transform_graph.getItems(*it);
+
+        std::cout<<"FRAME ID: "<<static_cast<std::string>(*it)<<" WITH "<<target_items.size()<<" ITEMS\n";
+
+        /** In case the frame has point cloud and all the required items **/
+        if (target_items.size() == 4)
+        {
+            /** Get the target pose **/
+            envire::sam::KeypointItem::Ptr target_keypoints_item = boost::static_pointer_cast<envire::sam::KeypointItem>(target_items[2]);
+            envire::sam::PoseItem::Ptr target_pose = boost::static_pointer_cast<envire::sam::PoseItem>(target_items[0]);
+
+            /** Get the target keypoints **/
+            pcl::PointCloud<pcl::PointWithScale>::Ptr target_keypoints = boost::make_shared< pcl::PointCloud<pcl::PointWithScale> >(target_keypoints_item->getData());
+
+            /** Get the target descriptors **/
+            envire::sam::FPFHDescriptorItem::Ptr target_descriptors_item = boost::static_pointer_cast<envire::sam::FPFHDescriptorItem>(target_items[3]);
+            pcl::PointCloud<pcl::FPFHSignature33>::Ptr target_descriptors = boost::make_shared<pcl::PointCloud<pcl::FPFHSignature33> >(target_descriptors_item->getData());
+
+            /** Find features correspondences **/
+            std::vector<int> source2target;
+            std::vector<float> k_squared_distances;
+            this->findFPFHFeatureCorrespondences(source_descriptors, target_descriptors, source2target, k_squared_distances);
+
+            std::cout << "TARGET FRAME " << static_cast<std::string>(*it) << " HAS" << target_descriptors->size() <<" DESCRIPTORS\n";
+
+            /** Compute the median correspondence score **/
+            std::vector<float> temp(k_squared_distances);
+            std::sort(temp.begin (), temp.end ());
+            float median_score = temp[temp.size ()/2.0];
+
+            /** Evaluate the keypoints with highest score (small squared
+             * distance)  **/
+            for (register unsigned int i=0; i<source_keypoints->size(); ++i)
+            {
+                if (k_squared_distances[i] <= median_score)
+                {
+                    /** Get the points **/
+                    Eigen::Vector3d p_source (source_keypoints->points[i].x,
+                                                source_keypoints->points[i].y,
+                                                source_keypoints->points[i].z);
+
+                    int j = source2target[i];
+                    Eigen::Vector3d p_target (target_keypoints->points[j].x,
+                                                target_keypoints->points[j].y,
+                                                target_keypoints->points[j].z);
+
+                    /** Transform the point in the global frame **/
+                    p_source = source_pose->getData().getTransform() * p_source;
+                    p_target = target_pose->getData().getTransform() * p_target;
+
+                    std::cout<<"IN GLOBAL FRAME\n";
+                    std::cout<<"SOURCE POINT: "<<p_source[0]<<"TARGET POINT: "<<p_target[0]<<"\n";
+                    std::cout<<"SOURCE POINT: "<<p_source[1]<<"TARGET POINT: "<<p_target[1]<<"\n";
+                    std::cout<<"SOURCE POINT: "<<p_source[2]<<"TARGET POINT: "<<p_target[2]<<"\n";
+
+                    std::cout<<"DIFF NORM: "<<(p_source-p_target).norm()<<"\n";
+
+                }
+            }
+
+
+        }
+    }
+
+    return;
 }
 
 void ESAM::printFactorGraph(const std::string &title)
@@ -972,6 +1134,18 @@ void ESAM::writePlyFile(const base::samples::Pointcloud& points, const std::stri
     }
 }
 
+
+int ESAM::getPoseCorrespodences(std::vector<int> &pose_correspodences)
+{
+    pose_correspodences.clear();
+    std::vector<gtsam::Symbol>::const_iterator it = this->frames_to_search.begin();
+    for(; it != this->frames_to_search.end(); ++it)
+    {
+        pose_correspodences.push_back(static_cast<int>(it->index()));
+    }
+
+    return static_cast<int>(this->frame_to_search_landmarks.index());
+}
 
 void ESAM::transformPointCloud(const ::base::samples::Pointcloud & pc, ::base::samples::Pointcloud & transformed_pc, const Eigen::Affine3d& transformation)
 {
@@ -1235,7 +1409,7 @@ void ESAM::computeFPFHFeaturesAtKeypoints (PCLPointCloud::Ptr &points,
     return;
 }
 
-void ESAM::findFeatureCorrespondences (pcl::PointCloud<pcl::PFHSignature125>::Ptr &source_descriptors,
+void ESAM::findPFHFeatureCorrespondences (pcl::PointCloud<pcl::PFHSignature125>::Ptr &source_descriptors,
                       pcl::PointCloud<pcl::PFHSignature125>::Ptr &target_descriptors,
                       std::vector<int> &correspondences_out, std::vector<float> &correspondence_scores_out)
 {
@@ -1246,6 +1420,32 @@ void ESAM::findFeatureCorrespondences (pcl::PointCloud<pcl::PFHSignature125>::Pt
 
     // Use a KdTree to search for the nearest matches in feature space
     pcl::search::KdTree<pcl::PFHSignature125> descriptor_kdtree;
+    descriptor_kdtree.setInputCloud (target_descriptors);
+
+    // Find the index of the best match for each keypoint, and store it in "correspondences_out"
+    const int k = 1;
+    std::vector<int> k_indices (k);
+    std::vector<float> k_squared_distances (k);
+    for (size_t i = 0; i < source_descriptors->size (); ++i)
+    {
+        descriptor_kdtree.nearestKSearch (*source_descriptors, i, k, k_indices, k_squared_distances);
+        correspondences_out[i] = k_indices[0];
+        correspondence_scores_out[i] = k_squared_distances[0];
+    }
+
+    return;
+}
+
+void ESAM::findFPFHFeatureCorrespondences (pcl::PointCloud<pcl::FPFHSignature33>::Ptr &source_descriptors,
+                      pcl::PointCloud<pcl::FPFHSignature33>::Ptr &target_descriptors,
+                      std::vector<int> &correspondences_out, std::vector<float> &correspondence_scores_out)
+{
+    // Resize the output vector
+    correspondences_out.resize (source_descriptors->size ());
+    correspondence_scores_out.resize (source_descriptors->size ());
+
+    // Use a KdTree to search for the nearest matches in feature space
+    pcl::search::KdTree<pcl::FPFHSignature33> descriptor_kdtree;
     descriptor_kdtree.setInputCloud (target_descriptors);
 
     // Find the index of the best match for each keypoint, and store it in "correspondences_out"

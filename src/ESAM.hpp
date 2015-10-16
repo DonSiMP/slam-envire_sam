@@ -79,6 +79,7 @@ namespace envire { namespace sam
     /** Transform Graph types **/
     typedef envire::core::SpatialItem<base::TransformWithCovariance> PoseItem;
     typedef envire::core::Item<PCLPointCloud> PointCloudItem;
+    typedef envire::core::Item< pcl::PointCloud<pcl::PointWithScale> > KeypointItem;
     typedef envire::core::Item< pcl::PointCloud<pcl::PFHSignature125> > PFHDescriptorItem;
     typedef envire::core::Item< pcl::PointCloud<pcl::FPFHSignature33> > FPFHDescriptorItem;
 
@@ -100,7 +101,20 @@ namespace envire { namespace sam
         /** Keys to identify poses and landmarks **/
         char pose_key, landmark_key;
 
+        /** Indices to identify poses and landmarks **/
         unsigned long int pose_idx, landmark_idx;
+
+        /** Candidate frame to search for Landmarks **/
+        gtsam::Symbol candidate_to_search_landmarks;
+
+        /** Last frame to search for Landmarks **/
+        gtsam::Symbol frame_to_search_landmarks;
+
+        /** Vector of candidates to search **/
+        std::vector<gtsam::Symbol> candidates_to_search;
+
+        /** Vector of frames to search **/
+        std::vector<gtsam::Symbol> frames_to_search;
 
         /** The environment in a graph structure **/
         envire::core::TransformGraph _transform_graph;
@@ -212,7 +226,7 @@ namespace envire { namespace sam
 
         void pushPointCloud(const ::base::samples::Pointcloud &base_point_cloud, const int height, const int width);
 
-        void keypointsPointCloud(const gtsam::Symbol &frame_id, const float normal_radius, const float feature_radius);
+        int keypointsPointCloud(const gtsam::Symbol &frame_id, const float normal_radius, const float feature_radius);
 
         void transformPointCloud(const ::base::samples::Pointcloud & pc, ::base::samples::Pointcloud & transformed_pc, const Eigen::Affine3d& transformation);
 
@@ -232,13 +246,17 @@ namespace envire { namespace sam
 
         gtsam::Symbol computeAlignedBoundingBox();
 
+        void computeKeypoints();
+
         void detectLandmarks();
 
         bool intersects(const gtsam::Symbol &frame1, const gtsam::Symbol &frame2);
 
         bool contains(const gtsam::Symbol &container_frame, const gtsam::Symbol &query_frame);
 
-        void containsFrames (const gtsam::Symbol &container_frame_id);
+        void containsFrames (const gtsam::Symbol &container_frame_id, std::vector<gtsam::Symbol> &frames_to_search);
+
+        void featuresCorrespondences(const gtsam::Symbol &frame_id, const std::vector<gtsam::Symbol> &frames_to_search);
 
         void printMarginals();
 
@@ -249,6 +267,8 @@ namespace envire { namespace sam
         void graphViz(const std::string &filename);
 
         void writePlyFile(const base::samples::Pointcloud& points, const std::string& file);
+
+        int getPoseCorrespodences(std::vector<int> &pose_correspodences);
 
     protected:
 
@@ -287,11 +307,46 @@ namespace envire { namespace sam
                            pcl::PointCloud<pcl::PointWithScale>::Ptr &keypoints, float feature_radius,
                            pcl::PointCloud<pcl::FPFHSignature33>::Ptr &descriptors_out);
 
-        void findFeatureCorrespondences (pcl::PointCloud<pcl::PFHSignature125>::Ptr &source_descriptors,
+        void findPFHFeatureCorrespondences (pcl::PointCloud<pcl::PFHSignature125>::Ptr &source_descriptors,
                       pcl::PointCloud<pcl::PFHSignature125>::Ptr &target_descriptors,
                       std::vector<int> &correspondences_out, std::vector<float> &correspondence_scores_out);
 
+        void findFPFHFeatureCorrespondences (pcl::PointCloud<pcl::FPFHSignature33>::Ptr &source_descriptors,
+                      pcl::PointCloud<pcl::FPFHSignature33>::Ptr &target_descriptors,
+                      std::vector<int> &correspondences_out, std::vector<float> &correspondence_scores_out);
+
         void printKeypoints(const pcl::PointCloud<pcl::PointWithScale>::Ptr keypoints);
+
+        template <typename _ScalarType>
+        static bool acceptPointDistance(const _ScalarType &mahalanobis2, const int dof)
+        {
+                std::cout << "[MAHALANOBIS_DISTANCE] mahalanobis2: " << mahalanobis2 <<std::endl;
+                std::cout << "[MAHALANOBIS_DISTANCE] dof: " << dof <<std::endl;
+
+                /** Only significance of alpha = 5% is computed **/
+                switch (dof)
+                {
+                    case 1:
+                        if (mahalanobis2 < 3.84)
+                            return true;
+                        else
+                            return false;
+                    case 2:
+                        if (mahalanobis2 < 5.99)
+                            return true;
+                        else
+                            return false;
+                    case 3:
+                        if (mahalanobis2 < 7.81)
+                            return true;
+                        else
+                            return false;
+                    case 4:
+                        if (mahalanobis2 < 9.49)
+                            return true;
+                }
+        }
+
 
     public:
 
