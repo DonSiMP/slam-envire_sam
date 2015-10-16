@@ -30,6 +30,8 @@ ESAM::ESAM()
 ESAM::ESAM(const ::base::Pose &pose, const ::base::Vector6d &var_pose,
         const char pose_key, const char landmark_key)
 {
+    std::cout<<"AQUI\n";
+
     BilateralFilterParams bfilter_default;
     OutlierRemovalParams outlier_default;
     SIFTKeypointParams keypoint_default;
@@ -44,8 +46,11 @@ ESAM::ESAM(const ::base::Pose &pose, const ::base::Vector6d &var_pose,
 
     float default_downsample = 0.01;
 
+    landmark_var = Eigen::Vector3d(0.01, 0.01, 0.01);
+
     ESAM(pose, var_pose, pose_key, landmark_key, default_downsample,
-            bfilter_default, outlier_default, keypoint_default, feature_default);
+            bfilter_default, outlier_default, keypoint_default, feature_default,
+            landmark_var);
 }
 
 ESAM::ESAM(const ::base::Pose &pose, const ::base::Matrix6d &cov_pose,
@@ -65,8 +70,11 @@ ESAM::ESAM(const ::base::Pose &pose, const ::base::Matrix6d &cov_pose,
 
     float default_downsample = 0.01;
 
+    landmark_var = Eigen::Vector3d(0.01, 0.01, 0.01);
+
     ESAM(pose, cov_pose, pose_key, landmark_key, default_downsample, bfilter_default,
-            outlier_default, keypoint_default, feature_default);
+            outlier_default, keypoint_default, feature_default,
+            landmark_var);
 }
 
 ESAM::ESAM(const ::base::TransformWithCovariance &pose_with_cov,
@@ -75,7 +83,8 @@ ESAM::ESAM(const ::base::TransformWithCovariance &pose_with_cov,
         const BilateralFilterParams &bfilter,
         const OutlierRemovalParams &outliers,
         const SIFTKeypointParams &keypoint,
-        const PFHFeatureParams &feature)
+        const PFHFeatureParams &feature,
+        const Eigen::Vector3d &landmark_var)
 {
     gtsam::Pose3 pose_0(gtsam::Rot3(pose_with_cov.orientation), gtsam::Point3(pose_with_cov.translation));
     gtsam::Matrix cov_matrix = pose_with_cov.cov;
@@ -94,6 +103,7 @@ ESAM::ESAM(const ::base::TransformWithCovariance &pose_with_cov,
     this->pose_idx = 0;
     this->landmark_idx = 0;
 
+
     /** Filter and outlier parameters **/
     this->bfilter_paramaters = bfilter;
     this->outlier_paramaters = outliers;
@@ -109,6 +119,9 @@ ESAM::ESAM(const ::base::TransformWithCovariance &pose_with_cov,
     this->candidate_to_search_landmarks = this->invalid_symbol;
     this->frame_to_search_landmarks = this->invalid_symbol;
 
+    /** Landmark error form the sensor **/
+    this->landmark_var = landmark_var;
+
     // Add a prior on pose x0. This indirectly specifies where the origin is.
     this->_factor_graph.add(gtsam::PriorFactor<gtsam::Pose3>(gtsam::Symbol(this->pose_key, this->pose_idx), pose_0, cov_pose_0)); // add directly to graph
 
@@ -119,7 +132,8 @@ ESAM::ESAM(const ::base::Pose &pose, const ::base::Matrix6d &cov_pose,
         const BilateralFilterParams &bfilter,
         const OutlierRemovalParams &outliers,
         const SIFTKeypointParams &keypoint,
-        const PFHFeatureParams &feature)
+        const PFHFeatureParams &feature,
+        const Eigen::Vector3d &landmark_var)
 {
 
     gtsam::Pose3 pose_0(gtsam::Rot3(pose.orientation), gtsam::Point3(pose.position));
@@ -154,6 +168,9 @@ ESAM::ESAM(const ::base::Pose &pose, const ::base::Matrix6d &cov_pose,
     this->candidate_to_search_landmarks = this->invalid_symbol;
     this->frame_to_search_landmarks = this->invalid_symbol;
 
+    /** Landmark error form the sensor **/
+    this->landmark_var = landmark_var;
+
     // Add a prior on pose x0. This indirectly specifies where the origin is.
     this->_factor_graph.add(gtsam::PriorFactor<gtsam::Pose3>(gtsam::Symbol(this->pose_key, this->pose_idx), pose_0, cov_pose_0)); // add directly to graph
 }
@@ -164,7 +181,8 @@ ESAM::ESAM(const ::base::Pose &pose, const ::base::Vector6d &var_pose,
         const BilateralFilterParams &bfilter,
         const OutlierRemovalParams &outliers,
         const SIFTKeypointParams &keypoint,
-        const PFHFeatureParams &feature)
+        const PFHFeatureParams &feature,
+        const Eigen::Vector3d &landmark_var)
 {
     gtsam::Pose3 pose_0(gtsam::Rot3(pose.orientation), gtsam::Point3(pose.position));
     gtsam::Vector variances = var_pose;
@@ -182,6 +200,9 @@ ESAM::ESAM(const ::base::Pose &pose, const ::base::Vector6d &var_pose,
     this->pose_idx = 0;
     this->landmark_idx = 0;
 
+    std::cout<<"AQUI X IDX: "<<this->pose_idx<<"\n";
+    std::cout<<"AQUI L IDX: "<<this->landmark_idx<<"\n";
+
     /** Filter and outlier parameters **/
     this->bfilter_paramaters = bfilter;
     this->outlier_paramaters = outliers;
@@ -197,8 +218,14 @@ ESAM::ESAM(const ::base::Pose &pose, const ::base::Vector6d &var_pose,
     this->candidate_to_search_landmarks = this->invalid_symbol;
     this->frame_to_search_landmarks = this->invalid_symbol;
 
+    /** Landmark error form the sensor **/
+    this->landmark_var = landmark_var;
+
     // Add a prior on pose x0. This indirectly specifies where the origin is.
     this->_factor_graph.add(gtsam::PriorFactor<gtsam::Pose3>(gtsam::Symbol(this->pose_key, this->pose_idx), pose_0, cov_pose_0)); // add directly to graph
+    std::cout<<"AQUI X IDX: "<<this->pose_idx<<"\n";
+    std::cout<<"AQUI L IDX: "<<this->landmark_idx<<"\n";
+
 }
 
 ESAM::~ESAM()
@@ -206,7 +233,7 @@ ESAM::~ESAM()
     this->marginals.reset();
 }
 
-void ESAM::insertFactor(const char key1, const unsigned long int &idx1,
+void ESAM::insertPoseFactor(const char key1, const unsigned long int &idx1,
                 const char key2, const unsigned long int &idx2,
                 const base::Time &time, const ::base::Pose &delta_pose,
                 const ::base::Vector6d &var_delta_pose)
@@ -227,7 +254,7 @@ void ESAM::insertFactor(const char key1, const unsigned long int &idx1,
     this->_transform_graph.addTransform(symbol1, symbol2, tf);
 }
 
-void ESAM::insertFactor(const char key1, const unsigned long int &idx1,
+void ESAM::insertPoseFactor(const char key1, const unsigned long int &idx1,
                 const char key2, const unsigned long int &idx2,
                 const base::Time &time, const ::base::Pose &delta_pose,
                 const ::base::Matrix6d &cov_delta_pose)
@@ -252,29 +279,32 @@ void ESAM::addDeltaPoseFactor(const base::Time &time, const ::Eigen::Affine3d &d
 {
     ::base::Pose delta_pose(delta_tf);
     this->pose_idx++;
-    return this->insertFactor(this->pose_key, this->pose_idx-1, this->pose_key, this->pose_idx, time, delta_pose, var_delta_tf);
+    return this->insertPoseFactor(this->pose_key, this->pose_idx-1, this->pose_key, this->pose_idx, time, delta_pose, var_delta_tf);
 }
 
 void ESAM::addDeltaPoseFactor(const base::Time &time, const ::base::TransformWithCovariance &delta_pose_with_cov)
 {
     ::base::Pose delta_pose(delta_pose_with_cov.translation, delta_pose_with_cov.orientation);
     this->pose_idx++;
-    return this->insertFactor(this->pose_key, this->pose_idx-1, this->pose_key, this->pose_idx, time, delta_pose, delta_pose_with_cov.cov);
+    return this->insertPoseFactor(this->pose_key, this->pose_idx-1, this->pose_key, this->pose_idx, time, delta_pose, delta_pose_with_cov.cov);
 }
 
 void ESAM::addDeltaPoseFactor(const base::Time &time, const ::base::Pose &delta_pose, const ::base::Vector6d &var_delta_pose)
 {
+    std::cout<<"IN ADD DELTA POSE\n";
+    std::cout<<"AQUI X IDX: "<<this->pose_idx<<"\n";
     this->pose_idx++;
-    return this->insertFactor(this->pose_key, this->pose_idx-1, this->pose_key, this->pose_idx, time, delta_pose, var_delta_pose);
+    std::cout<<"AQUI X IDX: "<<this->pose_idx<<"\n";
+    return this->insertPoseFactor(this->pose_key, this->pose_idx-1, this->pose_key, this->pose_idx, time, delta_pose, var_delta_pose);
 }
 
 void ESAM::addDeltaPoseFactor(const base::Time &time, const ::base::Pose &delta_pose, const ::base::Matrix6d &cov_delta_pose)
 {
     this->pose_idx++;
-    return this->insertFactor(this->pose_key, this->pose_idx-1, this->pose_key, this->pose_idx, time, delta_pose, cov_delta_pose);
+    return this->insertPoseFactor(this->pose_key, this->pose_idx-1, this->pose_key, this->pose_idx, time, delta_pose, cov_delta_pose);
 }
 
-void ESAM::insertValue(const std::string &frame_id, const ::base::TransformWithCovariance &pose_with_cov)
+void ESAM::insertPoseValue(const std::string &frame_id, const ::base::TransformWithCovariance &pose_with_cov)
 {
     try
     {
@@ -289,7 +319,7 @@ void ESAM::insertValue(const std::string &frame_id, const ::base::TransformWithC
 }
 
 
-void ESAM::insertValue(const char key, const unsigned long int &idx,
+void ESAM::insertPoseValue(const char key, const unsigned long int &idx,
         const ::base::TransformWithCovariance &pose_with_cov)
 {
     gtsam::Symbol symbol = gtsam::Symbol(key, idx);
@@ -306,7 +336,7 @@ void ESAM::insertValue(const char key, const unsigned long int &idx,
 
 }
 
-void ESAM::insertValue(const char key, const unsigned long int &idx,
+void ESAM::insertPoseValue(const char key, const unsigned long int &idx,
         const ::base::Pose &pose, const ::base::Matrix6d &cov_pose)
 {
     gtsam::Symbol symbol = gtsam::Symbol(key, idx);
@@ -330,7 +360,7 @@ void ESAM::addPoseValue(const ::base::TransformWithCovariance &pose_with_cov)
     this->_transform_graph.addFrame(frame_id);
 
     /** Insert the item **/
-    return this->insertValue(this->pose_key, this->pose_idx, pose_with_cov);
+    return this->insertPoseValue(this->pose_key, this->pose_idx, pose_with_cov);
 }
 
 base::TransformWithCovariance& ESAM::getLastPoseValueAndId(std::string &frame_id_string)
@@ -926,7 +956,6 @@ void ESAM::detectLandmarks()
         /** Features Correspondences **/
         this->featuresCorrespondences(this->frame_to_search_landmarks, this->frames_to_search);
 
-        /** Landmarks to Factor graph **/
     }
 
     return;
@@ -1051,37 +1080,103 @@ void ESAM::featuresCorrespondences(const gtsam::Symbol &frame_id,
              * distance)  **/
             for (register unsigned int i=0; i<source_keypoints->size(); ++i)
             {
-                if (k_squared_distances[i] <= median_score)
-                {
-                    /** Get the points **/
-                    Eigen::Vector3d p_source (source_keypoints->points[i].x,
-                                                source_keypoints->points[i].y,
-                                                source_keypoints->points[i].z);
+                /** Get the points **/
+                Eigen::Vector3d p_source (source_keypoints->points[i].x,
+                                            source_keypoints->points[i].y,
+                                            source_keypoints->points[i].z);
 
-                    int j = source2target[i];
-                    Eigen::Vector3d p_target (target_keypoints->points[j].x,
-                                                target_keypoints->points[j].y,
-                                                target_keypoints->points[j].z);
+                int j = source2target[i];
+                Eigen::Vector3d p_target (target_keypoints->points[j].x,
+                                            target_keypoints->points[j].y,
+                                            target_keypoints->points[j].z);
+                std::cout<<"IN LOCAL FRAME\n";
+                std::cout<<"SOURCE POINT: "<<p_source[0]<<"TARGET POINT: "<<p_target[0]<<"\n";
+                std::cout<<"SOURCE POINT: "<<p_source[1]<<"TARGET POINT: "<<p_target[1]<<"\n";
+                std::cout<<"SOURCE POINT: "<<p_source[2]<<"TARGET POINT: "<<p_target[2]<<"\n";
 
-                    /** Transform the point in the global frame **/
-                    p_source = source_pose->getData().getTransform() * p_source;
-                    p_target = target_pose->getData().getTransform() * p_target;
+                /** Transform the point in the global frame **/
+                Eigen::Vector3d p_source_global = source_pose->getData().getTransform() * p_source;
+                Eigen::Vector3d p_target_global = target_pose->getData().getTransform() * p_target;
 
-                    std::cout<<"IN GLOBAL FRAME\n";
-                    std::cout<<"SOURCE POINT: "<<p_source[0]<<"TARGET POINT: "<<p_target[0]<<"\n";
-                    std::cout<<"SOURCE POINT: "<<p_source[1]<<"TARGET POINT: "<<p_target[1]<<"\n";
-                    std::cout<<"SOURCE POINT: "<<p_source[2]<<"TARGET POINT: "<<p_target[2]<<"\n";
+                std::cout<<"IN GLOBAL FRAME\n";
+                std::cout<<"SOURCE POINT: "<<p_source_global[0]<<"TARGET POINT: "<<p_target_global[0]<<"\n";
+                std::cout<<"SOURCE POINT: "<<p_source_global[1]<<"TARGET POINT: "<<p_target_global[1]<<"\n";
+                std::cout<<"SOURCE POINT: "<<p_source_global[2]<<"TARGET POINT: "<<p_target_global[2]<<"\n";
 
-                    std::cout<<"DIFF NORM: "<<(p_source-p_target).norm()<<"\n";
+                Eigen::Vector3d innovation = p_source_global - p_target_global;
 
-                }
+                std::cout<<"DIFF NORM: "<<innovation.norm()<<"\n";
+
+                /** Get the uncertainty of both poses **/
+                base::TransformWithCovariance add_tf(source_pose->getData() * target_pose->getData());
+                Eigen::Matrix3d add_cov = static_cast<Eigen::Matrix3d>(add_tf.cov.block<3,3>(0,0)) +
+                    static_cast<Eigen::Matrix3d>(this->landmark_var.asDiagonal());
+
+                /** Compute Mahalanobis **/
+                const float mahalanobis = innovation.transpose() * add_cov.inverse() * innovation;
+
+                /** Insert landmark **/
+                this->insertLandmark(frame_id, *it, p_source, p_target,
+                        k_squared_distances[i], median_score, mahalanobis);
             }
-
-
         }
     }
 
     return;
+}
+
+void ESAM::insertLandmark (const gtsam::Symbol &frame_pose1, const gtsam::Symbol &frame_pose2,
+                            const Eigen::Vector3d &point1, const Eigen::Vector3d &point2,
+                            const float &k_squared_distance, const float &median_distance,
+                            const float &mahalanobis)
+{
+    if (acceptPointDistance<float>(mahalanobis, this->landmark_var.size()))
+    {
+        std::cout<<"POINT PASSED MAHALANOBIS TEST\n";
+
+        if (k_squared_distance <= median_distance)
+        {
+            /** Landmark symbol **/
+            gtsam::Symbol l_symbol = gtsam::Symbol(this->landmark_key, this->landmark_idx);
+            this->landmark_idx++;
+
+            std::cout<<"GOOD: TO PUSH KEYPOINT AS LANDMARK: "<<static_cast<std::string>(l_symbol)<<"\n";
+
+            /** Landmark noise model **/
+            gtsam::Vector variances = this->landmark_var;
+            const gtsam::noiseModel::Diagonal::shared_ptr cov_landmark =
+                gtsam::noiseModel::Diagonal::Variances(variances);
+
+            /** Landmark measurement1 to Factor graph **/
+            gtsam::Point3 measurement1(point1[0], point1[1], point1[2]);
+            this->_factor_graph.add(LandmarkFactor(frame_pose1, l_symbol,
+                        measurement1, cov_landmark));
+
+            /** Landmark measurement1 to envire graph **/
+
+            /** Landmark measurement2 to Factor graph **/
+            gtsam::Point3 measurement2(point2[0], point2[1], point2[2]);
+            this->_factor_graph.add(LandmarkFactor(frame_pose2, l_symbol,
+                        measurement2, cov_landmark));
+
+
+            /** Optimize ESAM **/
+            std::cout<<"OPTIMIZE!!!\n";
+            this->optimize();
+
+            /** Marginals **/
+            std::cout<<"MARGINALS!!!\n";
+            this->printMarginals();
+        }
+        else
+        {
+            std::cout<<"MARCHING SCORE REJECTED!\n";
+        }
+    }
+    else
+    {
+        std::cout<<"MAHALANOBIS REJECTED!\n";
+    }
 }
 
 void ESAM::printFactorGraph(const std::string &title)

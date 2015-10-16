@@ -33,6 +33,7 @@
 #include <gtsam/geometry/Point2.h>
 #include <gtsam/geometry/SimpleCamera.h>
 #include <gtsam/nonlinear/Symbol.h>
+#include <gtsam/slam/LandmarkTransformFactor.h>
 
 /** GTSAM Factors **/
 #include <gtsam/slam/PriorFactor.h>
@@ -76,8 +77,12 @@ namespace envire { namespace sam
     typedef pcl::PointCloud<PointType> PCLPointCloud;
     typedef PCLPointCloud::Ptr PCLPointCloudPtr;
 
+    /** GTSAM Types **/
+    typedef gtsam::LandmarkTransformFactor<gtsam::Pose3, gtsam::Point3> LandmarkFactor;
+
     /** Transform Graph types **/
     typedef envire::core::SpatialItem<base::TransformWithCovariance> PoseItem;
+    typedef envire::core::SpatialItem<base::Vector3d> LandmarkItem;
     typedef envire::core::Item<PCLPointCloud> PointCloudItem;
     typedef envire::core::Item< pcl::PointCloud<pcl::PointWithScale> > KeypointItem;
     typedef envire::core::Item< pcl::PointCloud<pcl::PFHSignature125> > PFHDescriptorItem;
@@ -143,6 +148,9 @@ namespace envire { namespace sam
         /** Feature parameters **/
         PFHFeatureParams feature_parameters;
 
+        /** Landmark minimal var **/
+        Eigen::Vector3d landmark_var;
+
         /** Downsampling factor **/
         float downsample_size;
 
@@ -164,7 +172,8 @@ namespace envire { namespace sam
                 const BilateralFilterParams &bfilter,
                 const OutlierRemovalParams &outliers,
                 const SIFTKeypointParams &keypoint,
-                const PFHFeatureParams &feature);
+                const PFHFeatureParams &feature,
+                const Eigen::Vector3d &landmark_var);
 
         ESAM(const ::base::Pose &pose, const ::base::Matrix6d &cov_pose,
                 const char pose_key, const char landmark_key,
@@ -172,7 +181,8 @@ namespace envire { namespace sam
                 const BilateralFilterParams &bfilter,
                 const OutlierRemovalParams &outliers,
                 const SIFTKeypointParams &keypoint,
-                const PFHFeatureParams &feature);
+                const PFHFeatureParams &feature,
+                const Eigen::Vector3d &landmark_var);
 
         ESAM(const ::base::Pose &pose, const ::base::Vector6d &var_pose, 
                 const char pose_key, const char landmark_key,
@@ -180,16 +190,17 @@ namespace envire { namespace sam
                 const BilateralFilterParams &bfilter,
                 const OutlierRemovalParams &outliers,
                 const SIFTKeypointParams &keypoint,
-                const PFHFeatureParams &feature);
+                const PFHFeatureParams &feature,
+                const Eigen::Vector3d &landmark_var);
 
         ~ESAM();
 
-        void insertFactor(const char key1, const unsigned long int &idx1,
+        void insertPoseFactor(const char key1, const unsigned long int &idx1,
                  const char key2, const unsigned long int &idx2,
                  const base::Time &time, const ::base::Pose &delta_pose,
                  const ::base::Vector6d &var_delta_pose);
 
-        void insertFactor(const char key1, const unsigned long int &idx1,
+        void insertPoseFactor(const char key1, const unsigned long int &idx1,
                 const char key2, const unsigned long int &idx2,
                 const base::Time &time, const ::base::Pose &delta_pose,
                 const ::base::Matrix6d &cov_delta_pose);
@@ -202,11 +213,11 @@ namespace envire { namespace sam
 
         void addDeltaPoseFactor(const base::Time &time, const ::base::Pose &delta_pose, const ::base::Matrix6d &cov_delta_pose);
 
-        void insertValue(const std::string &frame_id, const ::base::TransformWithCovariance &pose_with_cov);
+        void insertPoseValue(const std::string &frame_id, const ::base::TransformWithCovariance &pose_with_cov);
 
-        void insertValue(const char key, const unsigned long int &idx, const ::base::TransformWithCovariance &pose_with_cov);
+        void insertPoseValue(const char key, const unsigned long int &idx, const ::base::TransformWithCovariance &pose_with_cov);
 
-        void insertValue(const char key, const unsigned long int &idx, const ::base::Pose &pose, const ::base::Matrix6d &cov_pose = ::base::Matrix6d::Identity());
+        void insertPoseValue(const char key, const unsigned long int &idx, const ::base::Pose &pose, const ::base::Matrix6d &cov_pose = ::base::Matrix6d::Identity());
 
         void addPoseValue(const ::base::TransformWithCovariance &pose_with_cov);
 
@@ -257,6 +268,9 @@ namespace envire { namespace sam
         void containsFrames (const gtsam::Symbol &container_frame_id, std::vector<gtsam::Symbol> &frames_to_search);
 
         void featuresCorrespondences(const gtsam::Symbol &frame_id, const std::vector<gtsam::Symbol> &frames_to_search);
+
+        void insertLandmark (const gtsam::Symbol &frame_pose1, const gtsam::Symbol &frame_pose2, const Eigen::Vector3d &point1,
+                const Eigen::Vector3d &point2, const float &k_squared_distance, const float &median_distance, const float &mahalanobis);
 
         void printMarginals();
 
