@@ -325,6 +325,27 @@ void ESAM::insertBearingRangeFactor(const char p_key, const unsigned long int &p
 
 }
 
+void ESAM::insertLandmarkFactor(const char p_key, const unsigned long int &p_idx,
+                const char l_key, const unsigned long int &l_idx,
+                const base::Time &time, const base::Vector3d &measurement,
+                const ::base::Vector3d &var_measurement)
+{
+    /** Symbols **/
+    gtsam::Symbol p_symbol = gtsam::Symbol(p_key, p_idx);
+    gtsam::Symbol l_symbol = gtsam::Symbol(l_key, l_idx);
+
+    /** Add the measurement to the factor graph **/
+    this->_factor_graph.add(LandmarkFactor(p_symbol, l_symbol, gtsam::Point3(measurement),
+                gtsam::noiseModel::Diagonal::Variances(var_measurement)));
+
+    /** Add the measurement to envire **/
+    ::base::Matrix6d cov(base::Matrix6d::Zero());
+    cov.block<3,3>(0,0) = var_measurement.asDiagonal();
+    envire::core::Transform tf(time, measurement, Eigen::Quaterniond::Identity(), cov);
+    this->_transform_graph.addTransform(p_symbol, l_symbol, tf);
+
+}
+
 void ESAM::addDeltaPoseFactor(const base::Time &time, const ::Eigen::Affine3d &delta_tf, const ::base::Vector6d &var_delta_tf)
 {
     ::base::Pose delta_pose(delta_tf);
@@ -356,8 +377,17 @@ void ESAM::addBearingRangeFactor(const char p_key, const unsigned long int &p_id
 {
 
     this->landmark_idx++;
-    return this->insertBearingRangeFactor(p_key, pose_idx, this->landmark_key, this->landmark_idx-1,
+    return this->insertBearingRangeFactor(p_key, p_idx, this->landmark_key, this->landmark_idx-1,
             time, bearing_angle, range_distance, var_measurement);
+}
+
+void ESAM::addLandmarkFactor(const char p_key, const unsigned long int &p_idx, const base::Time &time,
+        const base::Vector3d &measurement, const ::base::Vector3d &var_measurement)
+{
+
+    this->landmark_idx++;
+    return this->insertLandmarkFactor(p_key, p_idx, this->landmark_key, this->landmark_idx-1,
+            time, measurement, var_measurement);
 }
 
 void ESAM::insertPoseValue(const std::string &frame_id, const ::base::TransformWithCovariance &pose_with_cov)
@@ -415,7 +445,7 @@ void ESAM::insertLandmarkValue(const char l_key, const unsigned long int &l_idx,
     gtsam::Symbol symbol = gtsam::Symbol(l_key, l_idx);
     try
     {
-        envire::sam::Landmark3DItem::Ptr landmark_item(new envire::sam::Landmark3DItem());
+        envire::sam::LandmarkItem::Ptr landmark_item(new envire::sam::LandmarkItem());
         landmark_item->setData(measurement);
         this->_transform_graph.addItemToFrame(symbol, landmark_item);
 
@@ -425,21 +455,6 @@ void ESAM::insertLandmarkValue(const char l_key, const unsigned long int &l_idx,
     }
 }
 
-void ESAM::insertLandmarkValue(const char l_key, const unsigned long int &l_idx,
-         const ::base::Vector2d &measurement)
-{
-    gtsam::Symbol symbol = gtsam::Symbol(l_key, l_idx);
-    try
-    {
-        envire::sam::Landmark2DItem::Ptr landmark_item(new envire::sam::Landmark2DItem());
-        landmark_item->setData(measurement);
-        this->_transform_graph.addItemToFrame(symbol, landmark_item);
-
-    }catch(envire::core::UnknownFrameException &ufex)
-    {
-        std::cerr << ufex.what() << std::endl;
-    }
-}
 void ESAM::addPoseValue(const ::base::TransformWithCovariance &pose_with_cov)
 {
     /** Add the frame to the transform graph **/
@@ -451,16 +466,6 @@ void ESAM::addPoseValue(const ::base::TransformWithCovariance &pose_with_cov)
 }
 
 void ESAM::addLandmarkValue(const ::base::Vector3d &measurement)
-{
-    /** Add the Landmark to the transform graph **/
-    gtsam::Symbol frame_id = gtsam::Symbol(this->landmark_key, this->landmark_idx);
-    this->_transform_graph.addFrame(frame_id);
-
-    /** Insert the item **/
-    return this->insertLandmarkValue(this->landmark_key, this->landmark_idx, measurement);
-}
-
-void ESAM::addLandmarkValue(const ::base::Vector2d &measurement)
 {
     /** Add the Landmark to the transform graph **/
     gtsam::Symbol frame_id = gtsam::Symbol(this->landmark_key, this->landmark_idx);
@@ -529,8 +534,8 @@ void ESAM::optimize()
         try
         {
             std::vector<envire::core::ItemBase::Ptr> items = this->_transform_graph.getItems(frame_id);
-            envire::sam::Landmark2DItem::Ptr landmark_item = boost::static_pointer_cast<envire::sam::Landmark2DItem>(items[0]);
-            gtsam::Point2 landmark(landmark_item->getData());
+            envire::sam::LandmarkItem::Ptr landmark_item = boost::static_pointer_cast<envire::sam::LandmarkItem>(items[0]);
+            gtsam::Point3 landmark(landmark_item->getData());
             initialEstimate.insert(frame_id, landmark);
         }catch(envire::core::UnknownFrameException &ufex)
         {
@@ -563,13 +568,23 @@ void ESAM::optimize()
         {
             gtsam::Symbol const &frame_id(key_value->key);
             std::vector<envire::core::ItemBase::Ptr> items = this->_transform_graph.getItems(frame_id);
-            envire::sam::PoseItem::Ptr pose_item = boost::static_pointer_cast<envire::sam::PoseItem>(items[0]);
-            base::TransformWithCovariance result_pose_with_cov;
-            boost::shared_ptr<gtsam::Pose3> pose = boost::reinterpret_pointer_cast<gtsam::Pose3>(key_value->value.clone());
-            result_pose_with_cov.translation = pose->translation().vector();
-            result_pose_with_cov.orientation = pose->rotation().toQuaternion();
-            result_pose_with_cov.cov = this->marginals->marginalCovariance(key_value->key);
-            pose_item->setData(result_pose_with_cov);
+
+            if(frame_id.chr() == this->pose_key)
+            {
+                envire::sam::PoseItem::Ptr pose_item = boost::static_pointer_cast<envire::sam::PoseItem>(items[0]);
+                base::TransformWithCovariance result_pose_with_cov;
+                boost::shared_ptr<gtsam::Pose3> pose = boost::reinterpret_pointer_cast<gtsam::Pose3>(key_value->value.clone());
+                result_pose_with_cov.translation = pose->translation().vector();
+                result_pose_with_cov.orientation = pose->rotation().toQuaternion();
+                result_pose_with_cov.cov = this->marginals->marginalCovariance(key_value->key);
+                pose_item->setData(result_pose_with_cov);
+            }
+            else if(frame_id.chr() == this->landmark_key)
+            {
+                envire::sam::LandmarkItem::Ptr landmark_item = boost::static_pointer_cast<envire::sam::LandmarkItem>(items[0]);
+                boost::shared_ptr<gtsam::Point3> point = boost::reinterpret_pointer_cast<gtsam::Point3>(key_value->value.clone());
+                landmark_item->setData(base::Vector3d(point->x(), point->y(), point->z()));
+            }
         }catch(envire::core::UnknownFrameException &ufex)
         {
             std::cerr << ufex.what() << std::endl;
@@ -755,6 +770,12 @@ void ESAM::printMarginals()
     {
         gtsam::Symbol frame_id(this->pose_key, i);
         std::cout <<this->pose_key<<i<<" covariance:\n" << this->marginals->marginalCovariance(frame_id) << std::endl;
+    }
+
+    for(register unsigned int i=0; i<this->landmark_idx; ++i)
+    {
+        gtsam::Symbol frame_id(this->landmark_key, i);
+        std::cout <<this->landmark_key<<i<<" covariance:\n" << this->marginals->marginalCovariance(frame_id) << std::endl;
     }
 }
 
@@ -1069,7 +1090,7 @@ void ESAM::computeKeypoints()
     return;
 }
 
-void ESAM::detectLandmarks()
+void ESAM::detectLandmarks(const base::Time &time)
 {
     std::cout<<"DETECTING LANDMARKS FOR FRAME: "<<static_cast<std::string>(this->frame_to_search_landmarks)<<"\n";
     std::cout<<"TO SEARCH IN "<<this->frames_to_search.size()<<" FRAMES\n";
@@ -1079,7 +1100,7 @@ void ESAM::detectLandmarks()
             this->frame_to_search_landmarks != invalid_symbol)
     {
         /** Features Correspondences **/
-        this->featuresCorrespondences(this->frame_to_search_landmarks, this->frames_to_search);
+        this->featuresCorrespondences(time, this->frame_to_search_landmarks, this->frames_to_search);
 
     }
 
@@ -1146,7 +1167,7 @@ void ESAM::containsFrames (const gtsam::Symbol &container_frame_id, std::vector<
     }
 }
 
-void ESAM::featuresCorrespondences(const gtsam::Symbol &frame_id,
+void ESAM::featuresCorrespondences(const base::Time &time, const gtsam::Symbol &frame_id,
         const std::vector<gtsam::Symbol> &frames_to_search)
 {
     std::cout<<"CORRESPONDENCE FEATURES\n";
@@ -1240,68 +1261,55 @@ void ESAM::featuresCorrespondences(const gtsam::Symbol &frame_id,
                 /** Compute Mahalanobis **/
                 const float mahalanobis = innovation.transpose() * add_cov.inverse() * innovation;
 
-                /** Insert landmark **/
-                this->insertLandmark(frame_id, *it, p_source, p_target,
-                        k_squared_distances[i], median_score, mahalanobis);
+                if (this->acceptPointDistance(mahalanobis, this->landmark_var.size()))
+                {
+                    std::cout<<"POINT PASSED MAHALANOBIS TEST\n";
+
+                    if (k_squared_distances[i] <= median_score)
+                    {
+                        std::cout<<"CURRENT LANDMARK ID: "<<this->currentLandmarkId()<<"\n";
+                        /** Insert landmark measurement into the factor graph **/
+                        this->insertLandmarkFactor(frame_id.chr(), frame_id.index(),
+                                this->landmark_key, this->landmark_idx, time,
+                                p_source, this->landmark_var);
+
+
+                        /** Insert landmark measurement into the factor graph **/
+                        this->insertLandmarkFactor((*it).chr(), (*it).index(),
+                                this->landmark_key, this->landmark_idx, time,
+                                p_target, this->landmark_var);
+
+                        /** Insert landmark value into the envire graph **/
+                        this->insertLandmarkValue(this->landmark_key, this->landmark_idx, p_source_global);
+
+                        /** Increase landmark index **/
+                        this->landmark_idx++;
+                        std::cout<<"NEXT LANDMARK ID: "<<this->currentLandmarkId()<<"\n";
+
+                        this->graphViz("esam_graph_last_in_method.dot");
+
+                        /** Optimize ESAM **/
+                        std::cout<<"OPTIMIZE!!!\n";
+                        this->optimize();
+
+                        /** Marginals **/
+                        std::cout<<"MARGINALS!!!\n";
+                        this->printMarginals();
+                    }
+                    else
+                    {
+                        std::cout<<"MARCHING SCORE REJECTED!\n";
+                    }
+                }
+                else
+                {
+                    std::cout<<"MAHALANOBIS REJECTED!\n";
+                }
             }
         }
     }
 
     return;
-}
-
-void ESAM::insertLandmark (const gtsam::Symbol &frame_pose1, const gtsam::Symbol &frame_pose2,
-                            const Eigen::Vector3d &point1, const Eigen::Vector3d &point2,
-                            const float &k_squared_distance, const float &median_distance,
-                            const float &mahalanobis)
-{
-    if (this->acceptPointDistance(mahalanobis, this->landmark_var.size()))
-    {
-        std::cout<<"POINT PASSED MAHALANOBIS TEST\n";
-
-        if (k_squared_distance <= median_distance)
-        {
-            /** Landmark symbol **/
-            gtsam::Symbol l_symbol = gtsam::Symbol(this->landmark_key, this->landmark_idx);
-            this->landmark_idx++;
-
-            std::cout<<"GOOD: TO PUSH KEYPOINT AS LANDMARK: "<<static_cast<std::string>(l_symbol)<<"\n";
-
-            /** Landmark noise model **/
-            gtsam::Vector variances = this->landmark_var;
-            const gtsam::noiseModel::Diagonal::shared_ptr cov_landmark =
-                gtsam::noiseModel::Diagonal::Variances(variances);
-
-            /** Landmark measurement1 to Factor graph **/
-            gtsam::Point3 measurement1(point1[0], point1[1], point1[2]);
-            this->_factor_graph.add(LandmarkFactor(frame_pose1, l_symbol,
-                        measurement1, cov_landmark));
-
-            /** Landmark measurement1 to envire graph **/
-
-            /** Landmark measurement2 to Factor graph **/
-            gtsam::Point3 measurement2(point2[0], point2[1], point2[2]);
-            this->_factor_graph.add(LandmarkFactor(frame_pose2, l_symbol,
-                        measurement2, cov_landmark));
-
-
-            /** Optimize ESAM **/
-            std::cout<<"OPTIMIZE!!!\n";
-            this->optimize();
-
-            /** Marginals **/
-            std::cout<<"MARGINALS!!!\n";
-            this->printMarginals();
-        }
-        else
-        {
-            std::cout<<"MARCHING SCORE REJECTED!\n";
-        }
-    }
-    else
-    {
-        std::cout<<"MAHALANOBIS REJECTED!\n";
-    }
 }
 
 void ESAM::printFactorGraph(const std::string &title)

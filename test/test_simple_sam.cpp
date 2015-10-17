@@ -176,10 +176,10 @@ BOOST_AUTO_TEST_CASE(envire_sam_simple_pose_slam)
 
 }
 
-BOOST_AUTO_TEST_CASE(envire_sam_simple_landmark_2dslam)
+BOOST_AUTO_TEST_CASE(envire_sam_simple_landmark_slam)
 {
     BOOST_TEST_MESSAGE( "\n**********************************************************\n" );
-    BOOST_TEST_MESSAGE( "ENVIRE_SAM_SIMPLE_LANDMARK_2DSLAM" );
+    BOOST_TEST_MESSAGE( "ENVIRE_SAM_SIMPLE_LANDMARK_SLAM" );
 
     // Create a factor graph
     base::Pose pose_0;
@@ -197,24 +197,14 @@ BOOST_AUTO_TEST_CASE(envire_sam_simple_landmark_2dslam)
 
     // Add Range-Bearing measurements to two different landmarks
     // create a noise model for the landmark measurements
-    base::Vector2d var_measurement (0.1, 0.2); // 0.1 rad std on bearing, 20cm on range
-
-    // create the measurement values - indices are (pose id, landmark id)
-    //Rot2 bearing11 = Rot2::fromDegrees(45),
-    //   bearing21 = Rot2::fromDegrees(90),
-    //   bearing32 = Rot2::fromDegrees(90);
-    double range11 = std::sqrt(4.0+4.0),
-         range21 = 2.0,
-         range32 = 2.0;
+    base::Vector3d var_measurement (0.1, 0.1, 0.02); // 20cm in position
 
     // Add Bearing-Range factors
-    std::cout<<"CURRENT LANDMARK ID: "<<esam.currentLandmarkId()<<"\n";
-    esam.addBearingRangeFactor('x', 0, base::Time::now(), 45.0 * D2R, range11, var_measurement);
-    std::cout<<"CURRENT LANDMARK ID: "<<esam.currentLandmarkId()<<"\n";
-    esam.insertBearingRangeFactor('x', 1, 'l', 0, base::Time::now(), 90.0 * D2R, range21, var_measurement);
-    std::cout<<"CURRENT LANDMARK ID: "<<esam.currentLandmarkId()<<"\n";
-    esam.addBearingRangeFactor('x', 2, base::Time::now(), 90.0 * D2R, range32, var_measurement);
-    std::cout<<"CURRENT LANDMARK ID: "<<esam.currentLandmarkId()<<"\n";
+    //std::cout<<"CURRENT LANDMARK ID: "<<esam.currentLandmarkId()<<"\n";
+    esam.addLandmarkFactor('x', 0, base::Time::now(), base::Vector3d(2, 2, 0), var_measurement);
+    esam.insertLandmarkFactor('x', 1, 'l', 0, base::Time::now(), base::Vector3d(0, 2, 0), var_measurement);
+    esam.insertLandmarkFactor('x', 2, 'l', 0,  base::Time::now(), base::Vector3d(-2, 2, 0), var_measurement);
+    esam.addLandmarkFactor('x', 2, base::Time::now(), base::Vector3d(0, 2, 0), var_measurement);
 
     // Print
     esam.printFactorGraph("\nFactor Graph:\n"); // print
@@ -231,14 +221,14 @@ BOOST_AUTO_TEST_CASE(envire_sam_simple_landmark_2dslam)
     pose.orientation = Eigen::Quaternion <double> (Eigen::AngleAxisd(0.1, Eigen::Vector3d::UnitZ()));
     esam.insertPoseValue('x', 2, pose);
 
-    base::Vector2d landmark;
-    landmark << 1.8, 2.1;
+    base::Vector3d landmark;
+    landmark << 1.8, 2.1, 0;
     esam.insertLandmarkValue('l', 0, landmark);
-    landmark << 4.1, 1.8;
+    landmark << 4.1, 1.8, 0;
     esam.insertLandmarkValue('l', 1, landmark);
 
     // GraphViz
-    esam.graphViz("esam_landmark_2dslam_graph.dot");
+    esam.graphViz("esam_landmark_slam_graph.dot");
 
     // 4. Optimize
     esam.optimize();

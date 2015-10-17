@@ -45,8 +45,9 @@
 /** GTSAM Optimizer **/
 #include <gtsam/nonlinear/DoglegOptimizer.h>
 #include <gtsam/nonlinear/GaussNewtonOptimizer.h>
+#include <gtsam/nonlinear/LevenbergMarquardtOptimizer.h>
 
-/** GTSAM Marhinals **/
+/** GTSAM Marginals **/
 #include <gtsam/nonlinear/Marginals.h>
 
 /** GTSAM Values to estimate **/
@@ -85,8 +86,7 @@ namespace envire { namespace sam
 
     /** Transform Graph types **/
     typedef envire::core::SpatialItem<base::TransformWithCovariance> PoseItem;
-    typedef envire::core::SpatialItem<base::Vector3d> Landmark3DItem;
-    typedef envire::core::SpatialItem<base::Vector2d> Landmark2DItem;
+    typedef envire::core::SpatialItem<base::Vector3d> LandmarkItem;
     typedef envire::core::Item<PCLPointCloud> PointCloudItem;
     typedef envire::core::Item< pcl::PointCloud<pcl::PointWithScale> > KeypointItem;
     typedef envire::core::Item< pcl::PointCloud<pcl::PFHSignature125> > PFHDescriptorItem;
@@ -219,6 +219,12 @@ namespace envire { namespace sam
                 const base::Time &time, const double &bearing_angle, const double &range_distance,
                 const ::base::Vector2d &var_measurement);
 
+        void insertLandmarkFactor(const char p_key, const unsigned long int &p_idx,
+                const char l_key, const unsigned long int &l_idx,
+                const base::Time &time, const base::Vector3d &measurement,
+                const ::base::Vector3d &var_measurement);
+
+
         void addDeltaPoseFactor(const base::Time &time, const ::Eigen::Affine3d &delta_tf, const ::base::Vector6d &var_delta_tf);
 
         void addDeltaPoseFactor(const base::Time &time, const ::base::TransformWithCovariance &delta_pose_with_cov);
@@ -230,6 +236,10 @@ namespace envire { namespace sam
         void addBearingRangeFactor(const char p_key, const unsigned long int &p_idx, const base::Time &time,
                 const double &bearing_angle, const double &range_distance, const ::base::Vector2d &var_measurement);
 
+        void addLandmarkFactor(const char p_key, const unsigned long int &p_idx,
+                const base::Time &time, const base::Vector3d &measurement,
+                const ::base::Vector3d &var_measurement);
+
         void insertPoseValue(const std::string &frame_id, const ::base::TransformWithCovariance &pose_with_cov);
 
         void insertPoseValue(const char key, const unsigned long int &idx, const ::base::TransformWithCovariance &pose_with_cov);
@@ -239,12 +249,7 @@ namespace envire { namespace sam
         void insertLandmarkValue(const char l_key, const unsigned long int &l_idx,
                                     const ::base::Vector3d &measurement);
 
-        void insertLandmarkValue(const char l_key, const unsigned long int &l_idx,
-                                    const ::base::Vector2d &measurement);
-
         void addLandmarkValue(const ::base::Vector3d &measurement);
-
-        void addLandmarkValue(const ::base::Vector2d &measurement);
 
         void addPoseValue(const ::base::TransformWithCovariance &pose_with_cov);
 
@@ -286,7 +291,7 @@ namespace envire { namespace sam
 
         void computeKeypoints();
 
-        void detectLandmarks();
+        void detectLandmarks(const base::Time &time);
 
         bool intersects(const gtsam::Symbol &frame1, const gtsam::Symbol &frame2);
 
@@ -294,10 +299,7 @@ namespace envire { namespace sam
 
         void containsFrames (const gtsam::Symbol &container_frame_id, std::vector<gtsam::Symbol> &frames_to_search);
 
-        void featuresCorrespondences(const gtsam::Symbol &frame_id, const std::vector<gtsam::Symbol> &frames_to_search);
-
-        void insertLandmark (const gtsam::Symbol &frame_pose1, const gtsam::Symbol &frame_pose2, const Eigen::Vector3d &point1,
-                const Eigen::Vector3d &point2, const float &k_squared_distance, const float &median_distance, const float &mahalanobis);
+        void featuresCorrespondences(const base::Time &time, const gtsam::Symbol &frame_id, const std::vector<gtsam::Symbol> &frames_to_search);
 
         void printMarginals();
 
