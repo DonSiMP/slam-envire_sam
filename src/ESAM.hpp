@@ -33,13 +33,14 @@
 #include <gtsam/geometry/Point2.h>
 #include <gtsam/geometry/SimpleCamera.h>
 #include <gtsam/nonlinear/Symbol.h>
-#include <gtsam/slam/LandmarkTransformFactor.h>
 
 /** GTSAM Factors **/
 #include <gtsam/slam/PriorFactor.h>
 #include <gtsam/slam/BetweenFactor.h>
 #include <gtsam/slam/ProjectionFactor.h>
 #include <gtsam/nonlinear/NonlinearFactorGraph.h>
+#include <gtsam/slam/LandmarkTransformFactor.h>
+#include <gtsam/slam/BearingRangeFactor.h>
 
 /** GTSAM Optimizer **/
 #include <gtsam/nonlinear/DoglegOptimizer.h>
@@ -50,6 +51,7 @@
 
 /** GTSAM Values to estimate **/
 #include <gtsam/nonlinear/Values.h>
+
 
 /** PCL **/
 #include <pcl/point_types.h>
@@ -72,6 +74,7 @@
 
 namespace envire { namespace sam
 {
+
     /** PCL TYPES **/
     typedef pcl::PointXYZRGB PointType;
     typedef pcl::PointCloud<PointType> PCLPointCloud;
@@ -82,7 +85,8 @@ namespace envire { namespace sam
 
     /** Transform Graph types **/
     typedef envire::core::SpatialItem<base::TransformWithCovariance> PoseItem;
-    typedef envire::core::SpatialItem<base::Vector3d> LandmarkItem;
+    typedef envire::core::SpatialItem<base::Vector3d> Landmark3DItem;
+    typedef envire::core::SpatialItem<base::Vector2d> Landmark2DItem;
     typedef envire::core::Item<PCLPointCloud> PointCloudItem;
     typedef envire::core::Item< pcl::PointCloud<pcl::PointWithScale> > KeypointItem;
     typedef envire::core::Item< pcl::PointCloud<pcl::PFHSignature125> > PFHDescriptorItem;
@@ -94,14 +98,7 @@ namespace envire { namespace sam
     class ESAM
     {
 
-    public:
-        EIGEN_MAKE_ALIGNED_OPERATOR_NEW //Structures having Eigen members
-        //EIGEN_DONT_VECTORIZE //That disables all 128-bit alignment code, and in particular everything vectorization-related
-
     private:
-
-        /** Invalid key symbol **/
-        const gtsam::Symbol invalid_symbol = gtsam::Symbol('u', -1);
 
         /** Keys to identify poses and landmarks **/
         char pose_key, landmark_key;
@@ -156,8 +153,7 @@ namespace envire { namespace sam
 
     public:
 
-        /** Constructors
-         */
+        /** Constructors **/
         ESAM();
 
         ESAM(const ::base::Pose &pose, const ::base::Vector6d &var_pose,
@@ -167,33 +163,46 @@ namespace envire { namespace sam
                 const char pose_key, const char landmark_key);
 
         ESAM(const ::base::TransformWithCovariance &pose_with_cov,
-                const char pose_key, const char landmark_key,
-                const float downsample_size,
-                const BilateralFilterParams &bfilter,
-                const OutlierRemovalParams &outliers,
-                const SIFTKeypointParams &keypoint,
-                const PFHFeatureParams &feature,
-                const Eigen::Vector3d &landmark_var);
-
-        ESAM(const ::base::Pose &pose, const ::base::Matrix6d &cov_pose,
-                const char pose_key, const char landmark_key,
-                const float downsample_size,
-                const BilateralFilterParams &bfilter,
-                const OutlierRemovalParams &outliers,
-                const SIFTKeypointParams &keypoint,
-                const PFHFeatureParams &feature,
-                const Eigen::Vector3d &landmark_var);
-
-        ESAM(const ::base::Pose &pose, const ::base::Vector6d &var_pose, 
-                const char pose_key, const char landmark_key,
-                const float downsample_size,
-                const BilateralFilterParams &bfilter,
-                const OutlierRemovalParams &outliers,
-                const SIFTKeypointParams &keypoint,
-                const PFHFeatureParams &feature,
-                const Eigen::Vector3d &landmark_var);
+            const char pose_key, const char landmark_key,
+            const float downsample_size,
+            const BilateralFilterParams &bfilter,
+            const OutlierRemovalParams &outliers,
+            const SIFTKeypointParams &keypoint,
+            const PFHFeatureParams &feature,
+            const Eigen::Vector3d &landmark_var);
 
         ~ESAM();
+
+    protected:
+
+        /** Initialization **/
+        void init(const ::base::TransformWithCovariance &pose_with_cov,
+                const char pose_key, const char landmark_key,
+                const float downsample_size,
+                const BilateralFilterParams &bfilter,
+                const OutlierRemovalParams &outliers,
+                const SIFTKeypointParams &keypoint,
+                const PFHFeatureParams &feature,
+                const Eigen::Vector3d &landmark_var);
+
+        void init(const ::base::Pose &pose, const ::base::Matrix6d &cov_pose,
+                const char pose_key, const char landmark_key,
+                const float downsample_size,
+                const BilateralFilterParams &bfilter,
+                const OutlierRemovalParams &outliers,
+                const SIFTKeypointParams &keypoint,
+                const PFHFeatureParams &feature,
+                const Eigen::Vector3d &landmark_var);
+
+        void init(const ::base::Pose &pose, const ::base::Vector6d &var_pose, 
+                const char pose_key, const char landmark_key,
+                const float downsample_size,
+                const BilateralFilterParams &bfilter,
+                const OutlierRemovalParams &outliers,
+                const SIFTKeypointParams &keypoint,
+                const PFHFeatureParams &feature,
+                const Eigen::Vector3d &landmark_var);
+    public:
 
         void insertPoseFactor(const char key1, const unsigned long int &idx1,
                  const char key2, const unsigned long int &idx2,
@@ -205,6 +214,11 @@ namespace envire { namespace sam
                 const base::Time &time, const ::base::Pose &delta_pose,
                 const ::base::Matrix6d &cov_delta_pose);
 
+        void insertBearingRangeFactor(const char p_key, const unsigned long int &p_idx,
+                const char l_key, const unsigned long int &l_idx,
+                const base::Time &time, const double &bearing_angle, const double &range_distance,
+                const ::base::Vector2d &var_measurement);
+
         void addDeltaPoseFactor(const base::Time &time, const ::Eigen::Affine3d &delta_tf, const ::base::Vector6d &var_delta_tf);
 
         void addDeltaPoseFactor(const base::Time &time, const ::base::TransformWithCovariance &delta_pose_with_cov);
@@ -213,19 +227,32 @@ namespace envire { namespace sam
 
         void addDeltaPoseFactor(const base::Time &time, const ::base::Pose &delta_pose, const ::base::Matrix6d &cov_delta_pose);
 
+        void addBearingRangeFactor(const char p_key, const unsigned long int &p_idx, const base::Time &time,
+                const double &bearing_angle, const double &range_distance, const ::base::Vector2d &var_measurement);
+
         void insertPoseValue(const std::string &frame_id, const ::base::TransformWithCovariance &pose_with_cov);
 
         void insertPoseValue(const char key, const unsigned long int &idx, const ::base::TransformWithCovariance &pose_with_cov);
 
         void insertPoseValue(const char key, const unsigned long int &idx, const ::base::Pose &pose, const ::base::Matrix6d &cov_pose = ::base::Matrix6d::Identity());
 
+        void insertLandmarkValue(const char l_key, const unsigned long int &l_idx,
+                                    const ::base::Vector3d &measurement);
+
+        void insertLandmarkValue(const char l_key, const unsigned long int &l_idx,
+                                    const ::base::Vector2d &measurement);
+
+        void addLandmarkValue(const ::base::Vector3d &measurement);
+
+        void addLandmarkValue(const ::base::Vector2d &measurement);
+
         void addPoseValue(const ::base::TransformWithCovariance &pose_with_cov);
 
         base::TransformWithCovariance& getLastPoseValueAndId(std::string &frame_id_string);
 
-        std::string currentPoseId();
+        const std::string currentPoseId();
 
-        std::string currentLandmarkId();
+        const std::string currentLandmarkId();
 
         void optimize();
 
@@ -331,56 +358,12 @@ namespace envire { namespace sam
 
         void printKeypoints(const pcl::PointCloud<pcl::PointWithScale>::Ptr keypoints);
 
-        template <typename _ScalarType>
-        static bool acceptPointDistance(const _ScalarType &mahalanobis2, const int dof)
-        {
-                std::cout << "[MAHALANOBIS_DISTANCE] mahalanobis2: " << mahalanobis2 <<std::endl;
-                std::cout << "[MAHALANOBIS_DISTANCE] dof: " << dof <<std::endl;
-
-                /** Only significance of alpha = 5% is computed **/
-                switch (dof)
-                {
-                    case 1:
-                        if (mahalanobis2 < 3.84)
-                            return true;
-                        else
-                            return false;
-                    case 2:
-                        if (mahalanobis2 < 5.99)
-                            return true;
-                        else
-                            return false;
-                    case 3:
-                        if (mahalanobis2 < 7.81)
-                            return true;
-                        else
-                            return false;
-                    case 4:
-                        if (mahalanobis2 < 9.49)
-                            return true;
-                }
-        }
+        bool acceptPointDistance(const float &mahalanobis2, const int dof);
 
 
     public:
+        EIGEN_MAKE_ALIGNED_OPERATOR_NEW //Structures having Eigen members
 
-        static bool isCovBigger(const Eigen::Matrix3d &cov_position, const double &value)
-        {
-            /**get the rotation and scaling of the ellipsoid from the covariance matrix **/
-            Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> ev( cov_position );
-            Eigen::Vector3d e_val = ev.eigenvalues();
-
-            std::cout<<"COMPUTER NORM COV: "<<Eigen::Vector3d(e_val.array().sqrt()).norm()<<"\n";
-
-            if(Eigen::Vector3d(e_val.array().sqrt()).norm() > value)
-            {
-                return true;
-            }
-            else
-            {
-                return false;
-            }
-        };
     };
 
 }}
