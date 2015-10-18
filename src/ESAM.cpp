@@ -1015,15 +1015,15 @@ gtsam::Symbol ESAM::computeAlignedBoundingBox()
     /** Computer standard deviation **/
     Eigen::Vector3d std_prev_pose = prev_pose->cov.block<3,3>(0,0).diagonal().array().sqrt();
     Eigen::Vector3d std_current_pose = current_pose->cov.block<3,3>(0,0).diagonal().array().sqrt();
-    std_prev_pose[0] = 0.1; std_current_pose[0] = 0.1;
+    std_prev_pose[0] = 0.05; std_current_pose[0] = 0.05;
     std_prev_pose[1] = 0.25; std_current_pose[1] = 0.25;
     std_prev_pose[2] = 1.0; std_current_pose[2] = 1.0;
 
     /** Compute Bounding box limits in the global frame **/
     Eigen::Vector3d front_limit(current_pose->translation);
     Eigen::Vector3d rear_limit(prev_pose->translation);
-    std::cout<<"FRONT BOUNDING LIMITS:\n"<<front_limit<<"\n";
-    std::cout<<"REAR BOUNDING LIMITS:\n"<<rear_limit<<"\n";
+    //std::cout<<"FRONT BOUNDING LIMITS:\n"<<front_limit<<"\n";
+    //std::cout<<"REAR BOUNDING LIMITS:\n"<<rear_limit<<"\n";
 
     /** Increase the limits using the standard deviation **/
     for (register int i=0; i<3; ++i)
@@ -1048,12 +1048,12 @@ gtsam::Symbol ESAM::computeAlignedBoundingBox()
     /** Assign the Bounding box to the item **/
     prev_pose_item->setBoundary(bounding_box);
 
-    std::cout<<"FRAME ID: ";
-    prev_frame_id.print();
-    std::cout<<" with "<<prev_items.size()<<" items\n";
-    std::cout<<"FRONT BOUNDING LIMITS:\n"<<front_limit<<"\n";
-    std::cout<<"REAR BOUNDING LIMITS:\n"<<rear_limit<<"\n";
-    std::cout<<"CENTER:\n"<<prev_pose_item->centerOfBoundary()<<"\n";
+    //std::cout<<"FRAME ID: ";
+    //prev_frame_id.print();
+    //std::cout<<" with "<<prev_items.size()<<" items\n";
+    //std::cout<<"FRONT BOUNDING LIMITS:\n"<<front_limit<<"\n";
+    //std::cout<<"REAR BOUNDING LIMITS:\n"<<rear_limit<<"\n";
+    //std::cout<<"CENTER:\n"<<prev_pose_item->centerOfBoundary()<<"\n";
 
     return prev_frame_id;
 }
@@ -1158,6 +1158,11 @@ void ESAM::containsFrames (const gtsam::Symbol &container_frame_id, std::vector<
             {
                 std::cout<<"CONTAINS FOUND!\n";
                 frames_to_search.push_back(target_frame_id);
+
+                if (target_frame_id.index()-1 != container_frame_id.index())
+                {
+                    std::cout<<"POTENTIAL LOOP CLOSE CONTAINER: "<<container_frame_id.index()<<" TARGET "<< target_frame_id.index()<<"\n";
+                }
             }
             else
             {
@@ -1171,6 +1176,9 @@ void ESAM::featuresCorrespondences(const base::Time &time, const gtsam::Symbol &
         const std::vector<gtsam::Symbol> &frames_to_search)
 {
     std::cout<<"CORRESPONDENCE FEATURES\n";
+
+    /** At least we found one landmark **/
+    bool found_landmarks = false;
 
     /** Get the source pose **/
     std::vector<envire::core::ItemBase::Ptr> source_items = this->_transform_graph.getItems(frame_id);
@@ -1254,19 +1262,31 @@ void ESAM::featuresCorrespondences(const base::Time &time, const gtsam::Symbol &
                 std::cout<<"DIFF NORM: "<<innovation.norm()<<"\n";
 
                 /** Get the uncertainty of both poses **/
-                base::TransformWithCovariance add_tf(source_pose->getData() * target_pose->getData());
+                base::TransformWithCovariance add_tf(source_pose->getData());// * target_pose->getData());
                 Eigen::Matrix3d add_cov = static_cast<Eigen::Matrix3d>(add_tf.cov.block<3,3>(0,0)) +
                     static_cast<Eigen::Matrix3d>(this->landmark_var.asDiagonal());
+
+                std::cout<<"ADD COVARIANCE:\n"<<add_cov<<"\n";
 
                 /** Compute Mahalanobis **/
                 const float mahalanobis = innovation.transpose() * add_cov.inverse() * innovation;
 
-                if (this->acceptPointDistance(mahalanobis, this->landmark_var.size()))
-                {
-                    std::cout<<"POINT PASSED MAHALANOBIS TEST\n";
+                //if (this->acceptPointDistance(mahalanobis, this->landmark_var.size()))
+                //{
+                    std::cout<<"POINT PASSED MAHALANOBIS TEST("<<mahalanobis<<")\n";
 
-                    if (k_squared_distances[i] <= median_score)
+                    if (k_squared_distances[i] > 0.8 * median_score)
                     {
+                        std::cout<<"MARCHING SCORE REJECTED!\n";
+                    }
+                    else
+                    {
+                        /** Set found landmarks to true **/
+                        if (found_landmarks == false)
+                        {
+                            found_landmarks = true;
+                        }
+
                         std::cout<<"CURRENT LANDMARK ID: "<<this->currentLandmarkId()<<"\n";
                         /** Insert landmark measurement into the factor graph **/
                         this->insertLandmarkFactor(frame_id.chr(), frame_id.index(),
@@ -1284,29 +1304,26 @@ void ESAM::featuresCorrespondences(const base::Time &time, const gtsam::Symbol &
 
                         /** Increase landmark index **/
                         this->landmark_idx++;
-                        std::cout<<"NEXT LANDMARK ID: "<<this->currentLandmarkId()<<"\n";
-
-                        this->graphViz("esam_graph_last_in_method.dot");
-
-                        /** Optimize ESAM **/
-                        std::cout<<"OPTIMIZE!!!\n";
-                        this->optimize();
-
-                        /** Marginals **/
-                        std::cout<<"MARGINALS!!!\n";
-                        this->printMarginals();
                     }
-                    else
-                    {
-                        std::cout<<"MARCHING SCORE REJECTED!\n";
-                    }
-                }
-                else
-                {
-                    std::cout<<"MAHALANOBIS REJECTED!\n";
-                }
+                //}
+                //else
+                //{
+                //    std::cout<<"MAHALANOBIS REJECTED!\n";
+                //}
             }
         }
+    }
+
+    if (found_landmarks)
+    {
+        /** Optimize ESAM **/
+        std::cout<<"OPTIMIZE!!!\n";
+        this->optimize();
+
+        /** Marginals **/
+        //std::cout<<"MARGINALS!!!\n";
+        //this->printMarginals();
+
     }
 
     return;
