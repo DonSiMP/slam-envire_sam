@@ -1016,7 +1016,7 @@ gtsam::Symbol ESAM::computeAlignedBoundingBox()
     Eigen::Vector3d std_prev_pose = prev_pose->cov.block<3,3>(0,0).diagonal().array().sqrt();
     Eigen::Vector3d std_current_pose = current_pose->cov.block<3,3>(0,0).diagonal().array().sqrt();
     std_prev_pose[0] = 0.05; std_current_pose[0] = 0.05;
-    std_prev_pose[1] = 0.25; std_current_pose[1] = 0.25;
+    std_prev_pose[1] = 0.4; std_current_pose[1] = 0.4;
     std_prev_pose[2] = 1.0; std_current_pose[2] = 1.0;
 
     /** Compute Bounding box limits in the global frame **/
@@ -1159,7 +1159,7 @@ void ESAM::containsFrames (const gtsam::Symbol &container_frame_id, std::vector<
                 std::cout<<"CONTAINS FOUND!\n";
                 frames_to_search.push_back(target_frame_id);
 
-                if (target_frame_id.index()-1 != container_frame_id.index())
+                if (std::fabs(container_frame_id.index() - target_frame_id.index()) > 10.00)
                 {
                     std::cout<<"POTENTIAL LOOP CLOSE CONTAINER: "<<container_frame_id.index()<<" TARGET "<< target_frame_id.index()<<"\n";
                 }
@@ -1230,6 +1230,9 @@ void ESAM::featuresCorrespondences(const base::Time &time, const gtsam::Symbol &
             std::sort(temp.begin (), temp.end ());
             float median_score = temp[temp.size ()/2.0];
 
+            /** Set the percentage of the media **/
+            float percentage = 1.0;
+
             /** Evaluate the keypoints with highest score (small squared
              * distance)  **/
             for (register unsigned int i=0; i<source_keypoints->size(); ++i)
@@ -1274,8 +1277,9 @@ void ESAM::featuresCorrespondences(const base::Time &time, const gtsam::Symbol &
                 //if (this->acceptPointDistance(mahalanobis, this->landmark_var.size()))
                 //{
                     std::cout<<"POINT PASSED MAHALANOBIS TEST("<<mahalanobis<<")\n";
+                    std::cout<<"MEDIAN SCORE ("<<median_score<<") PERCENTAGE ("<<percentage<<")\n";
 
-                    if (k_squared_distances[i] > 0.8 * median_score)
+                    if (k_squared_distances[i] > percentage * median_score)
                     {
                         std::cout<<"MARCHING SCORE REJECTED!\n";
                     }
