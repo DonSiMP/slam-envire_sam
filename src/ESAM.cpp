@@ -481,8 +481,7 @@ base::TransformWithCovariance& ESAM::getLastPoseValueAndId(std::string &frame_id
     envire::sam::PoseItem::Ptr pose_item;
     try
     {
-        std::vector<envire::core::ItemBase::Ptr> items = this->_transform_graph.getItems(frame_id);
-        pose_item = boost::static_pointer_cast<envire::sam::PoseItem>(items[0]);
+        pose_item = this->_transform_graph.getItem<envire::sam::PoseItem::Ptr>(frame_id);
         frame_id_string = static_cast<std::string>(frame_id);
     }catch(envire::core::UnknownFrameException &ufex)
     {
@@ -515,8 +514,7 @@ void ESAM::optimize()
         //frame_id.print();
         try
         {
-            std::vector<envire::core::ItemBase::Ptr> items = this->_transform_graph.getItems(frame_id);
-            envire::sam::PoseItem::Ptr pose_item = boost::static_pointer_cast<envire::sam::PoseItem>(items[0]);
+            envire::sam::PoseItem::Ptr pose_item = this->_transform_graph.getItem<envire::sam::PoseItem::Ptr>(frame_id);
             gtsam::Pose3 pose(gtsam::Rot3(pose_item->getData().orientation), gtsam::Point3(pose_item->getData().translation));
             initialEstimate.insert(frame_id, pose);
         }catch(envire::core::UnknownFrameException &ufex)
@@ -533,8 +531,8 @@ void ESAM::optimize()
         //frame_id.print();
         try
         {
-            std::vector<envire::core::ItemBase::Ptr> items = this->_transform_graph.getItems(frame_id);
-            envire::sam::LandmarkItem::Ptr landmark_item = boost::static_pointer_cast<envire::sam::LandmarkItem>(items[0]);
+            envire::sam::LandmarkItem::Ptr landmark_item =
+                this->_transform_graph.getItem<envire::sam::LandmarkItem::Ptr>(frame_id);
             gtsam::Point3 landmark(landmark_item->getData());
             initialEstimate.insert(frame_id, landmark);
         }catch(envire::core::UnknownFrameException &ufex)
@@ -567,11 +565,11 @@ void ESAM::optimize()
         try
         {
             gtsam::Symbol const &frame_id(key_value->key);
-            std::vector<envire::core::ItemBase::Ptr> items = this->_transform_graph.getItems(frame_id);
 
             if(frame_id.chr() == this->pose_key)
             {
-                envire::sam::PoseItem::Ptr pose_item = boost::static_pointer_cast<envire::sam::PoseItem>(items[0]);
+                envire::sam::PoseItem::Ptr pose_item =
+                    this->_transform_graph.getItem<envire::sam::PoseItem::Ptr>(frame_id);
                 base::TransformWithCovariance result_pose_with_cov;
                 boost::shared_ptr<gtsam::Pose3> pose = boost::reinterpret_pointer_cast<gtsam::Pose3>(key_value->value.clone());
                 result_pose_with_cov.translation = pose->translation().vector();
@@ -581,7 +579,8 @@ void ESAM::optimize()
             }
             else if(frame_id.chr() == this->landmark_key)
             {
-                envire::sam::LandmarkItem::Ptr landmark_item = boost::static_pointer_cast<envire::sam::LandmarkItem>(items[0]);
+                envire::sam::LandmarkItem::Ptr landmark_item = 
+                    this->_transform_graph.getItem<envire::sam::LandmarkItem::Ptr>(frame_id);
                 boost::shared_ptr<gtsam::Point3> point = boost::reinterpret_pointer_cast<gtsam::Point3>(key_value->value.clone());
                 landmark_item->setData(base::Vector3d(point->x(), point->y(), point->z()));
             }
@@ -598,8 +597,7 @@ void ESAM::optimize()
     ::base::TransformWithCovariance tf_cov;
     try
     {
-        std::vector<envire::core::ItemBase::Ptr> items = this->_transform_graph.getItems(frame_id);
-        envire::sam::PoseItem::Ptr pose_item = boost::static_pointer_cast<envire::sam::PoseItem>(items[0]);
+        envire::sam::PoseItem::Ptr pose_item = this->_transform_graph.getItem<envire::sam::PoseItem::Ptr>(frame_id);
         return pose_item->getData();
     }catch(envire::core::UnknownFrameException &ufex)
     {
@@ -615,8 +613,7 @@ void ESAM::optimize()
     try
     {
         ::base::TransformWithCovariance tf_pose;
-        std::vector<envire::core::ItemBase::Ptr> items = this->_transform_graph.getItems(frame_id);
-        envire::sam::PoseItem::Ptr pose_item = boost::static_pointer_cast<envire::sam::PoseItem>(items[0]);
+        envire::sam::PoseItem::Ptr pose_item = this->_transform_graph.getItem<envire::sam::PoseItem::Ptr>(frame_id);
         tf_pose = pose_item->getData();
         rbs_pose.position = tf_pose.translation;
         rbs_pose.orientation = tf_pose.orientation;
@@ -647,8 +644,7 @@ PCLPointCloud &ESAM::getPointCloud(const std::string &frame_id)
 {
     try
     {
-        std::vector<envire::core::ItemBase::Ptr> items = this->_transform_graph.getItems(frame_id);
-        envire::sam::PointCloudItem::Ptr point_cloud_item = boost::static_pointer_cast<envire::sam::PointCloudItem>(items[1]);
+        envire::sam::PointCloudItem::Ptr point_cloud_item = this->_transform_graph.getItem<envire::sam::PointCloudItem::Ptr>(frame_id);
         return point_cloud_item->getData();
     }catch(envire::core::UnknownFrameException &ufex)
     {
@@ -664,9 +660,7 @@ void ESAM::mergePointClouds(PCLPointCloud &merged_point_cloud, bool downsample)
         gtsam::Symbol frame_id(this->pose_key, i);
         //std::cout<<"MERGING POINT CLOUDS: ";
         //frame_id.print();
-        size_t number_items = this->_transform_graph.getItems(frame_id).size();
-
-        if (number_items > 1)
+        if (this->_transform_graph.containsItems<envire::sam::PointCloudItem::Ptr>(frame_id))
         {
             PCLPointCloud local_points = this->getPointCloud(frame_id);
             base::TransformWithCovariance tf_cov = this->getTransformPose(frame_id);
@@ -708,11 +702,9 @@ void ESAM::currentPointCloud(base::samples::Pointcloud &base_point_cloud, bool d
     base_point_cloud.points.clear();
     base_point_cloud.colors.clear();
 
-    /** Get the number of items **/
-    size_t number_items = this->_transform_graph.getItems(frame_id).size();
-
-    if (number_items > 1)
+    if (this->_transform_graph.containsItems<envire::sam::PointCloudItem::Ptr>(frame_id))
     {
+        /** Get point cloud **/
         PCLPointCloud current_point_cloud = this->getPointCloud(frame_id);
 
         /** Downsample **/
@@ -736,12 +728,9 @@ void ESAM::currentPointCloudtoPLY(const std::string &prefixname, bool downsample
     /** Get the current point cloud **/
     gtsam::Symbol frame_id = gtsam::Symbol(this->pose_key, this->pose_idx-1);
 
-    /** Get the number of items **/
-    size_t number_items = this->_transform_graph.getItems(frame_id).size();
-
-    if (number_items > 1)
+    if (this->_transform_graph.containsItems<envire::sam::PointCloudItem::Ptr>(frame_id))
     {
-
+        /** Get the point cloud in the frame **/
         PCLPointCloud current_point_cloud = this->getPointCloud(frame_id);
 
         /** Downsample **/
@@ -879,17 +868,17 @@ void ESAM::pushPointCloud(const ::base::samples::Pointcloud &base_point_cloud, c
 
     /** Get current point cloud in the node **/
     gtsam::Symbol frame_id = gtsam::Symbol(this->pose_key, this->pose_idx);
-    std::vector<envire::core::ItemBase::Ptr> items = this->_transform_graph.getItems(frame_id);
+    size_t number_pointclouds = this->_transform_graph.getItemCount<envire::sam::PointCloudItem::Ptr>(frame_id);
 
     std::cout<<"FRAME ID: ";
     frame_id.print();
-    std::cout<<" with "<<items.size()<<" items\n";
+    std::cout<<" with "<<number_pointclouds<<" point clouds\n";
 
     /** Merge with the existing point cloud **/
-    if (items.size() > 1)
+    if (number_pointclouds)
     {
         /** Get the current point cloud **/
-        envire::sam::PointCloudItem::Ptr point_cloud_item = boost::static_pointer_cast<envire::sam::PointCloudItem>(items[1]);
+        envire::sam::PointCloudItem::Ptr point_cloud_item = this->_transform_graph.getItem<envire::sam::PointCloudItem::Ptr>(frame_id);
 
         /** Concatenate fields **/
         point_cloud_item->getData() += *final_point_cloud;
@@ -930,13 +919,11 @@ void ESAM::pushPointCloud(const ::base::samples::Pointcloud &base_point_cloud, c
 int ESAM::keypointsPointCloud(const gtsam::Symbol &frame_id, const float normal_radius, const float feature_radius)
 {
     /** Get the point cloud in the node **/
-    std::vector<envire::core::ItemBase::Ptr> items = this->_transform_graph.getItems(frame_id);
-    envire::sam::PointCloudItem::Ptr point_cloud_item = boost::static_pointer_cast<envire::sam::PointCloudItem>(items[1]);
+    envire::sam::PointCloudItem::Ptr point_cloud_item = this->_transform_graph.getItem<envire::sam::PointCloudItem::Ptr>(frame_id);
     PCLPointCloudPtr point_cloud_ptr = boost::make_shared<PCLPointCloud>(point_cloud_item->getData());
 
     std::cout<<"FRAME ID: ";
     frame_id.print();
-    std::cout<<" with "<<items.size()<<" items\n";
 
     /** Downsample **/
     PCLPointCloudPtr downsample_point_cloud (new PCLPointCloud);
@@ -982,11 +969,7 @@ int ESAM::keypointsPointCloud(const gtsam::Symbol &frame_id, const float normal_
         envire::sam::FPFHDescriptorItem::Ptr descriptors_item (new FPFHDescriptorItem);
         descriptors_item->setData(*descriptors);
         this->_transform_graph.addItemToFrame(frame_id, descriptors_item);
-
-        items = this->_transform_graph.getItems(frame_id);
-
-        std::cout<<"FRAME: "<<static_cast<std::string>(frame_id)<<" HAS "<<items.size()<<" ELEMENTS\n";
-
+       // std::cout<<"FRAME: "<<static_cast<std::string>(frame_id)<<" HAS "<<items.size()<<" ELEMENTS\n";
     }
 
     return keypoints->size();
@@ -1000,17 +983,15 @@ gtsam::Symbol ESAM::computeAlignedBoundingBox()
 
     /** Get the previous frame pose **/
     gtsam::Symbol prev_frame_id = gtsam::Symbol(this->pose_key, this->pose_idx-1);
-    std::vector<envire::core::ItemBase::Ptr> prev_items = this->_transform_graph.getItems(prev_frame_id);
-    envire::sam::PoseItem::Ptr prev_pose_item = boost::static_pointer_cast<envire::sam::PoseItem>(prev_items[0]);
+    envire::sam::PoseItem::Ptr prev_pose_item = this->_transform_graph.getItem<envire::sam::PoseItem::Ptr>(prev_frame_id);
     boost::shared_ptr<base::TransformWithCovariance> prev_pose = boost::make_shared<base::TransformWithCovariance>(prev_pose_item->getData());
 
     std::cout<<"FOR FRAME "<<static_cast<std::string>(prev_frame_id)<<"\n";
 
     /** Get the current frame pose **/
     gtsam::Symbol current_frame_id = gtsam::Symbol(this->pose_key, this->pose_idx);
-    std::vector<envire::core::ItemBase::Ptr> current_items = this->_transform_graph.getItems(current_frame_id);
-    envire::sam::PoseItem::Ptr current_pose_item = boost::static_pointer_cast<envire::sam::PoseItem>(current_items[0]);
-    boost::shared_ptr<base::TransformWithCovariance> current_pose = boost::make_shared<base::TransformWithCovariance>(current_pose_item->getData());
+    envire::sam::PoseItem::Ptr current_pose_item = this->_transform_graph.getItem<envire::sam::PoseItem::Ptr>(current_frame_id);
+    boost::shared_ptr<base::TransformWithCovariance> current_pose = boost::make_shared<base::TransformWithCovariance>(prev_pose_item->getData());
 
     /** Computer standard deviation **/
     Eigen::Vector3d std_prev_pose = prev_pose->cov.block<3,3>(0,0).diagonal().array().sqrt();
@@ -1041,7 +1022,7 @@ gtsam::Symbol ESAM::computeAlignedBoundingBox()
     }
 
     /** Set the Bounding box **/
-    envire::core::AlignedBoundingBox::Ptr bounding_box(new AlignedBoundingBox);
+    envire::core::AlignedBoundingBox::Ptr bounding_box(new envire::core::AlignedBoundingBox);
     bounding_box->extend(front_limit);
     bounding_box->extend(rear_limit);
 
@@ -1050,7 +1031,6 @@ gtsam::Symbol ESAM::computeAlignedBoundingBox()
 
     //std::cout<<"FRAME ID: ";
     //prev_frame_id.print();
-    //std::cout<<" with "<<prev_items.size()<<" items\n";
     //std::cout<<"FRONT BOUNDING LIMITS:\n"<<front_limit<<"\n";
     //std::cout<<"REAR BOUNDING LIMITS:\n"<<rear_limit<<"\n";
     //std::cout<<"CENTER:\n"<<prev_pose_item->centerOfBoundary()<<"\n";
@@ -1064,11 +1044,8 @@ void ESAM::computeKeypoints()
     std::cout<<"COMPUTE BOUNDING BOX\n";
     gtsam::Symbol frame_id = this->computeAlignedBoundingBox();
 
-    /** Get the number of items **/
-    size_t number_items = this->_transform_graph.getItems(frame_id).size();
-
     /** Compute the keypoints in case of valid frame and it has point cloud **/
-    if (frame_id != invalid_symbol && number_items > 1)
+    if (frame_id != invalid_symbol && this->_transform_graph.containsItems<envire::sam::PointCloudItem::Ptr>(frame_id))
     {
         /** Compute the keypoints and features of the frame **/
         std::cout<<"KEYPOINTS AND FEATURES DESCRIPTORS\n";
@@ -1110,12 +1087,10 @@ void ESAM::detectLandmarks(const base::Time &time)
 bool ESAM::intersects(const gtsam::Symbol &frame1, const gtsam::Symbol &frame2)
 {
     /** Get Spatial item of the first frame **/
-    std::vector<envire::core::ItemBase::Ptr> items1 = this->_transform_graph.getItems(frame1);
-    envire::sam::PoseItem::Ptr pose_item1 = boost::static_pointer_cast<envire::sam::PoseItem>(items1[0]);
+    envire::sam::PoseItem::Ptr pose_item1 = this->_transform_graph.getItem<envire::sam::PoseItem::Ptr>(frame1);
 
     /** Get Spatial item of the second frame **/
-    std::vector<envire::core::ItemBase::Ptr> items2 = this->_transform_graph.getItems(frame2);
-    envire::sam::PoseItem::Ptr pose_item2 = boost::static_pointer_cast<envire::sam::PoseItem>(items2[0]);
+    envire::sam::PoseItem::Ptr pose_item2 = this->_transform_graph.getItem<envire::sam::PoseItem::Ptr>(frame2);
 
     /** Check intersection **/
     return pose_item1->intersects(*pose_item2);
@@ -1124,12 +1099,10 @@ bool ESAM::intersects(const gtsam::Symbol &frame1, const gtsam::Symbol &frame2)
 bool ESAM::contains(const gtsam::Symbol &container_frame, const gtsam::Symbol &query_frame)
 {
     /** Get Spatial item of the source frame **/
-    std::vector<envire::core::ItemBase::Ptr> items1 = this->_transform_graph.getItems(container_frame);
-    envire::sam::PoseItem::Ptr pose_item1 = boost::static_pointer_cast<envire::sam::PoseItem>(items1[0]);
+    envire::sam::PoseItem::Ptr pose_item1 = this->_transform_graph.getItem<envire::sam::PoseItem::Ptr>(container_frame);
 
     /** Get Spatial item of the query frame **/
-    std::vector<envire::core::ItemBase::Ptr> items2 = this->_transform_graph.getItems(query_frame);
-    envire::sam::PoseItem::Ptr pose_item2 = boost::static_pointer_cast<envire::sam::PoseItem>(items2[0]);
+    envire::sam::PoseItem::Ptr pose_item2 = this->_transform_graph.getItem<envire::sam::PoseItem::Ptr>(query_frame);
 
     /** Check intersection **/
     if (container_frame > query_frame)
@@ -1163,11 +1136,13 @@ void ESAM::containsFrames (const gtsam::Symbol &container_frame_id, std::vector<
                 {
                     std::cout<<"POTENTIAL LOOP CLOSE CONTAINER: "<<container_frame_id.index()<<" TARGET "<< target_frame_id.index()<<"\n";
                 }
+
             }
             else
             {
                 std::cout<<"NO FOUND!\n";
             }
+
         }
     }
 }
@@ -1175,47 +1150,47 @@ void ESAM::containsFrames (const gtsam::Symbol &container_frame_id, std::vector<
 void ESAM::featuresCorrespondences(const base::Time &time, const gtsam::Symbol &frame_id,
         const std::vector<gtsam::Symbol> &frames_to_search)
 {
-    std::cout<<"CORRESPONDENCE FEATURES\n";
+    std::cout<<"CORRESPONDENCE FEATURES: "<<static_cast<std::string>(frame_id)<<"\n";
 
     /** At least we found one landmark **/
     bool found_landmarks = false;
 
-    /** Get the source pose **/
-    std::vector<envire::core::ItemBase::Ptr> source_items = this->_transform_graph.getItems(frame_id);
-    envire::sam::PoseItem::Ptr source_pose = boost::static_pointer_cast<envire::sam::PoseItem>(source_items[0]);
-
     /** Return in case there is not keypoints and features descriptors **/
-    if (source_items.size() < 4)
+    if (!this->_transform_graph.containsItems<KeypointItem::Ptr>(frame_id) ||
+            !this->_transform_graph.containsItems<FPFHDescriptorItem::Ptr>(frame_id))
+    {
+
+        std::cout<<"Frame does not contain keypoints and features\n";
         return;
+    }
+
+    /** Get the source pose **/
+    envire::sam::PoseItem::Ptr source_pose = this->_transform_graph.getItem<envire::sam::PoseItem::Ptr>(frame_id);
 
     /** Get the source keypoints **/
-    envire::sam::KeypointItem::Ptr source_keypoints_item = boost::static_pointer_cast<envire::sam::KeypointItem>(source_items[2]);
+    envire::sam::KeypointItem::Ptr source_keypoints_item = this->_transform_graph.getItem<envire::sam::KeypointItem::Ptr>(frame_id);
     pcl::PointCloud<pcl::PointWithScale>::Ptr source_keypoints = boost::make_shared< pcl::PointCloud<pcl::PointWithScale> >(source_keypoints_item->getData());
 
     /** Get the source descriptors **/
-    envire::sam::FPFHDescriptorItem::Ptr source_descriptors_item = boost::static_pointer_cast<envire::sam::FPFHDescriptorItem>(source_items[3]);
+    envire::sam::FPFHDescriptorItem::Ptr source_descriptors_item = this->_transform_graph.getItem<envire::sam::FPFHDescriptorItem::Ptr>(frame_id);
     pcl::PointCloud<pcl::FPFHSignature33>::Ptr source_descriptors = boost::make_shared<pcl::PointCloud<pcl::FPFHSignature33> >(source_descriptors_item->getData());
 
-    std::cout << "SOURCE FRAME " << static_cast<std::string>(frame_id) << " HAS " << source_descriptors->size() <<" DESCRIPTORS\n";
     std::vector<gtsam::Symbol>::const_iterator it = frames_to_search.begin();
     for(; it != frames_to_search.end(); ++it)
     {
-        std::vector<envire::core::ItemBase::Ptr> target_items = this->_transform_graph.getItems(*it);
-
-        std::cout<<"FRAME ID: "<<static_cast<std::string>(*it)<<" WITH "<<target_items.size()<<" ITEMS\n";
-
-        /** In case the frame has point cloud and all the required items **/
-        if (target_items.size() == 4)
+        /** In case the frame has keypoints and features descriptors **/
+        if (this->_transform_graph.containsItems<envire::sam::KeypointItem::Ptr>(*it) &&
+                this->_transform_graph.containsItems<envire::sam::FPFHDescriptorItem::Ptr>(*it))
         {
             /** Get the target pose **/
-            envire::sam::KeypointItem::Ptr target_keypoints_item = boost::static_pointer_cast<envire::sam::KeypointItem>(target_items[2]);
-            envire::sam::PoseItem::Ptr target_pose = boost::static_pointer_cast<envire::sam::PoseItem>(target_items[0]);
+            envire::sam::KeypointItem::Ptr target_keypoints_item = this->_transform_graph.getItem<envire::sam::KeypointItem::Ptr>(*it);
+            envire::sam::PoseItem::Ptr target_pose = this->_transform_graph.getItem<envire::sam::PoseItem::Ptr>(*it);
 
             /** Get the target keypoints **/
             pcl::PointCloud<pcl::PointWithScale>::Ptr target_keypoints = boost::make_shared< pcl::PointCloud<pcl::PointWithScale> >(target_keypoints_item->getData());
 
             /** Get the target descriptors **/
-            envire::sam::FPFHDescriptorItem::Ptr target_descriptors_item = boost::static_pointer_cast<envire::sam::FPFHDescriptorItem>(target_items[3]);
+            envire::sam::FPFHDescriptorItem::Ptr target_descriptors_item = this->_transform_graph.getItem<envire::sam::FPFHDescriptorItem::Ptr>(*it);
             pcl::PointCloud<pcl::FPFHSignature33>::Ptr target_descriptors = boost::make_shared<pcl::PointCloud<pcl::FPFHSignature33> >(target_descriptors_item->getData());
 
             /** Find features correspondences **/
