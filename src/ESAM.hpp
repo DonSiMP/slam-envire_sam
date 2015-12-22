@@ -28,9 +28,10 @@
 #include <envire_core/all>
 
 /** GTSAM TYPES **/
+#include <gtsam/geometry/Pose2.h>
 #include <gtsam/geometry/Pose3.h>
-#include <gtsam/geometry/Point3.h>
 #include <gtsam/geometry/Point2.h>
+#include <gtsam/geometry/Point3.h>
 #include <gtsam/geometry/SimpleCamera.h>
 #include <gtsam/nonlinear/Symbol.h>
 

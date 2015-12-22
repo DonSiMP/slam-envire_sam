@@ -50,7 +50,7 @@ BOOST_AUTO_TEST_CASE(gtsam_simple_visual_slam)
     gtsam::NonlinearFactorGraph graph;
 
     // Add a prior on pose x1. This indirectly specifies where the origin is.
-    gtsam::noiseModel::Diagonal::shared_ptr poseNoise = gtsam::noiseModel::Diagonal::Sigmas(gtsam::Vector_(6, 0.3, 0.3, 0.3, 0.1, 0.1, 0.1)); // 30cm std on x,y,z 0.1 rad on roll,pitch,yaw
+    gtsam::noiseModel::Diagonal::shared_ptr poseNoise = gtsam::noiseModel::Diagonal::Sigmas((gtsam::Vector(6) << gtsam::Vector3::Constant(0.3), gtsam::Vector3::Constant(0.1)).finished()); // 30cm std on x,y,z 0.1 rad on roll,pitch,yaw
     graph.add(gtsam::PriorFactor<gtsam::Pose3>(gtsam::Symbol('x', 0), poses[0], poseNoise)); // add directly to graph
 
     // Simulated measurements from each camera pose, adding them to the factor graph
