@@ -122,10 +122,9 @@ namespace envire { namespace sam
                 pc.points.push_back(::base::Point(pcl_point.x, pcl_point.y, pcl_point.z));
 
                 /** Color **/
-                uint32_t rgb = *reinterpret_cast<const int*>(&pcl_point.rgb);
-                uint8_t r = (rgb >> 16) & 0x0000ff;
-                uint8_t g = (rgb >> 8)  & 0x0000ff;
-                uint8_t b = (rgb)       & 0x0000ff;
+                uint8_t r = (static_cast<int>(pcl_point.rgb) >> 16) & 0x0000ff;
+                uint8_t g = (static_cast<int>(pcl_point.rgb) >> 8)  & 0x0000ff;
+                uint8_t b = (static_cast<int>(pcl_point.rgb))       & 0x0000ff;
                 pc.colors.push_back(::base::Vector4d(r, g, b, 255.0)/255.00);
             }
         }
