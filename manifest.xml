@@ -16,5 +16,5 @@
   -->
   <depend package="slam/pcl" />
   <depend package="slam/gtsam" />
-  <depend package="slam/envire_core" />
+  <depend package="envire/envire_core" />
 </package>
