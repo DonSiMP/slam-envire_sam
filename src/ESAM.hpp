@@ -11,9 +11,6 @@
 #ifndef __ENVIRE_SAM_ESAM__
 #define __ENVIRE_SAM_ESAM__
 
-#include <vector>
-#include <fstream>
-
 /** Rock Base Types **/
 #include <base/Eigen.hpp>
 #include <base/Pose.hpp>
@@ -40,7 +37,6 @@
 #include <gtsam/slam/BetweenFactor.h>
 #include <gtsam/slam/ProjectionFactor.h>
 #include <gtsam/nonlinear/NonlinearFactorGraph.h>
-#include <gtsam/slam/LandmarkTransformFactor.h>
 #include <gtsam/slam/BearingRangeFactor.h>
 
 /** GTSAM Optimizer **/
@@ -73,6 +69,14 @@
 /** Envire SAM **/
 #include <envire_sam/Configuration.hpp>
 #include <envire_sam/Conversions.hpp>
+
+/** SAM Factors **/
+#include "LandmarkTransformFactor.h"
+
+/** Standard C++ **/
+#include <vector>
+#include <fstream>
+#include <utility>
 
 namespace envire { namespace sam
 {
@@ -108,19 +112,19 @@ namespace envire { namespace sam
         unsigned long int pose_idx, landmark_idx;
 
         /** Candidate frame to search for Landmarks **/
-        gtsam::Symbol candidate_to_search_landmarks;
+        boost::shared_ptr<gtsam::Symbol> candidate_to_search_landmarks;
 
         /** Last frame to search for Landmarks **/
-        gtsam::Symbol frame_to_search_landmarks;
+        boost::shared_ptr<gtsam::Symbol> frame_to_search_landmarks;
 
         /** Vector of candidates to search **/
-        std::vector<gtsam::Symbol> candidates_to_search;
+        std::vector< boost::shared_ptr<gtsam::Symbol> > candidates_to_search;
 
         /** Vector of frames to search **/
-        std::vector<gtsam::Symbol> frames_to_search;
+        std::vector< boost::shared_ptr<gtsam::Symbol> > frames_to_search;
 
         /** The environment in a graph structure **/
-        envire::core::TransformGraph _transform_graph;
+        envire::core::EnvireGraph _transform_graph;
 
         /** Factor graph **/
         gtsam::NonlinearFactorGraph _factor_graph;
@@ -270,7 +274,7 @@ namespace envire { namespace sam
 
         void pushPointCloud(const ::base::samples::Pointcloud &base_point_cloud, const int height, const int width);
 
-        int keypointsPointCloud(const gtsam::Symbol &frame_id, const float normal_radius, const float feature_radius);
+        int keypointsPointCloud(const boost::shared_ptr<gtsam::Symbol> &frame_id, const float normal_radius, const float feature_radius);
 
         void transformPointCloud(const ::base::samples::Pointcloud & pc, ::base::samples::Pointcloud & transformed_pc, const Eigen::Affine3d& transformation);
 
@@ -288,7 +292,7 @@ namespace envire { namespace sam
 
         void currentPointCloudtoPLY(const std::string &prefixname, bool downsample = false);
 
-        gtsam::Symbol computeAlignedBoundingBox();
+        boost::shared_ptr<gtsam::Symbol> computeAlignedBoundingBox();
 
         void computeKeypoints();
 
@@ -296,11 +300,11 @@ namespace envire { namespace sam
 
         bool intersects(const gtsam::Symbol &frame1, const gtsam::Symbol &frame2);
 
-        bool contains(const gtsam::Symbol &container_frame, const gtsam::Symbol &query_frame);
+        bool contains(const boost::shared_ptr<gtsam::Symbol> &container_frame, const boost::shared_ptr<gtsam::Symbol> &query_frame);
 
-        void containsFrames (const gtsam::Symbol &container_frame_id, std::vector<gtsam::Symbol> &frames_to_search);
+        void containsFrames (const boost::shared_ptr<gtsam::Symbol> &container_frame_id, std::vector< boost::shared_ptr<gtsam::Symbol> > &frames_to_search);
 
-        void featuresCorrespondences(const base::Time &time, const gtsam::Symbol &frame_id, const std::vector<gtsam::Symbol> &frames_to_search);
+        void featuresCorrespondences(const base::Time &time, const boost::shared_ptr<gtsam::Symbol> &frame_id, const std::vector< boost::shared_ptr<gtsam::Symbol> > &frames_to_search);
 
         void printMarginals();
 
